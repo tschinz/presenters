@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::{self, Geometry};
 use crate::document::Document;
-use crate::session::{format_elapsed, Session};
+use crate::session::{Session, format_elapsed};
 
 /// Which piece of the presentation a panel shows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -137,11 +137,11 @@ impl PresenterApp {
       return;
     };
     let page = self.session.current();
-    if let Some(entry) = self.recent.iter_mut().find(|e| e.path == path) {
-      if entry.page != page {
-        entry.page = page;
-        self.dirty = true;
-      }
+    if let Some(entry) = self.recent.iter_mut().find(|e| e.path == path)
+      && entry.page != page
+    {
+      entry.page = page;
+      self.dirty = true;
     }
   }
 
@@ -618,10 +618,10 @@ impl eframe::App for PresenterApp {
       self.layout(ctx);
       self.sync_recent_page();
 
-      if let Some(n) = self.session.next_page() {
-        if let Some(doc) = self.document.as_ref() {
-          self.cache.get_or_render(ctx, doc, n, Region::Slide, [1280, 720]);
-        }
+      if let Some(n) = self.session.next_page()
+        && let Some(doc) = self.document.as_ref()
+      {
+        self.cache.get_or_render(ctx, doc, n, Region::Slide, [1280, 720]);
       }
 
       if self.presenting {
@@ -677,12 +677,12 @@ impl PresenterApp {
             toggle_fullscreen = true;
           }
           // When blanked, leave the black frame empty.
-          if !self.blanked {
-            if let Some(doc) = self.document.as_ref() {
-              let page = self.session.current();
-              let aspect = doc.slide_aspect(page);
-              draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect);
-            }
+          if !self.blanked
+            && let Some(doc) = self.document.as_ref()
+          {
+            let page = self.session.current();
+            let aspect = doc.slide_aspect(page);
+            draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect);
           }
         });
 
@@ -690,18 +690,18 @@ impl PresenterApp {
         let vp = i.viewport();
         (vp.outer_rect.map(|r| r.min), vp.inner_rect.map(|r| r.size()))
       });
-      if !self.audience_fullscreen {
-        if let (Some(p), Some(s)) = (pos, size) {
-          let g = Geometry {
-            x: p.x,
-            y: p.y,
-            w: s.x,
-            h: s.y,
-          };
-          if geom_changed(self.audience_geometry, g) {
-            self.audience_geometry = Some(g);
-            self.dirty = true;
-          }
+      if !self.audience_fullscreen
+        && let (Some(p), Some(s)) = (pos, size)
+      {
+        let g = Geometry {
+          x: p.x,
+          y: p.y,
+          w: s.x,
+          h: s.y,
+        };
+        if geom_changed(self.audience_geometry, g) {
+          self.audience_geometry = Some(g);
+          self.dirty = true;
         }
       }
 

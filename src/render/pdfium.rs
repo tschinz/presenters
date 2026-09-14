@@ -4,7 +4,7 @@
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use image::RgbaImage;
 use pdfium_render::prelude::*;
 
@@ -59,23 +59,23 @@ fn candidate_lib_dirs() -> Vec<PathBuf> {
     dirs.push(PathBuf::from(p));
   }
 
-  if let Ok(exe) = std::env::current_exe() {
-    if let Some(exe_dir) = exe.parent() {
-      // Windows / AppImage / portable: next to the binary.
-      dirs.push(exe_dir.to_path_buf());
-      dirs.push(exe_dir.join("lib"));
+  if let Ok(exe) = std::env::current_exe()
+    && let Some(exe_dir) = exe.parent()
+  {
+    // Windows / AppImage / portable: next to the binary.
+    dirs.push(exe_dir.to_path_buf());
+    dirs.push(exe_dir.join("lib"));
 
-      if let Some(parent) = exe_dir.parent() {
-        // macOS .app: Contents/MacOS/<bin> -> Contents/Resources[/...]
-        let resources = parent.join("Resources");
-        dirs.push(resources.join("third_party/pdfium/lib"));
-        dirs.push(resources.join("lib"));
-        dirs.push(resources.clone());
+    if let Some(parent) = exe_dir.parent() {
+      // macOS .app: Contents/MacOS/<bin> -> Contents/Resources[/...]
+      let resources = parent.join("Resources");
+      dirs.push(resources.join("third_party/pdfium/lib"));
+      dirs.push(resources.join("lib"));
+      dirs.push(resources.clone());
 
-        // Linux install prefix: <prefix>/bin/<bin> -> <prefix>/lib[/<name>]
-        dirs.push(parent.join("lib/rust-presenters"));
-        dirs.push(parent.join("lib"));
-      }
+      // Linux install prefix: <prefix>/bin/<bin> -> <prefix>/lib[/<name>]
+      dirs.push(parent.join("lib/rust-presenters"));
+      dirs.push(parent.join("lib"));
     }
   }
 

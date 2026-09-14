@@ -147,11 +147,7 @@ impl Document {
 }
 
 fn region_aspect(page_aspect: f32, r: Region) -> f32 {
-  if r.h > 0.0 {
-    page_aspect * (r.w / r.h)
-  } else {
-    page_aspect
-  }
+  if r.h > 0.0 { page_aspect * (r.w / r.h) } else { page_aspect }
 }
 
 /// The slide occupies the half opposite the notes.

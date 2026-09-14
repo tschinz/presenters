@@ -83,11 +83,11 @@ impl State {
   /// Write the state file, creating the config directory if needed.
   pub fn save(&self) {
     let path = state_path();
-    if let Some(dir) = path.parent() {
-      if let Err(e) = std::fs::create_dir_all(dir) {
-        tracing::warn!("could not create config dir {}: {e}", dir.display());
-        return;
-      }
+    if let Some(dir) = path.parent()
+      && let Err(e) = std::fs::create_dir_all(dir)
+    {
+      tracing::warn!("could not create config dir {}: {e}", dir.display());
+      return;
     }
     match serde_json::to_string_pretty(self) {
       Ok(json) => {

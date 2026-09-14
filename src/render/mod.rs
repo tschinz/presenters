@@ -18,11 +18,7 @@ pub struct PageSize {
 impl PageSize {
   /// width / height. Guards against degenerate pages.
   pub fn aspect(&self) -> f32 {
-    if self.height > 0.0 {
-      self.width / self.height
-    } else {
-      1.0
-    }
+    if self.height > 0.0 { self.width / self.height } else { 1.0 }
   }
 }
 

@@ -124,11 +124,7 @@ impl Default for Timer {
 pub fn format_elapsed(d: Duration) -> String {
   let secs = d.as_secs();
   let (h, m, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
-  if h > 0 {
-    format!("{h}:{m:02}:{s:02}")
-  } else {
-    format!("{m}:{s:02}")
-  }
+  if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
 }
 
 #[cfg(test)]
