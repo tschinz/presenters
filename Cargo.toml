@@ -1,0 +1,49 @@
+[package]
+name = "rust-presenters"
+version = "0.1.0"
+edition = "2024"
+description = "Fast native dual-screen PDF presenter (pympress-like) for Typst/LaTeX slides"
+
+[package.metadata.bundle]
+name = "presenters"
+identifier = "ch.hevs.rust-presenters"
+icon = [
+    "img/icon-32.png",
+    "img/icon-64.png",
+    "img/icon-128.png",
+    "img/icon-256.png",
+    "img/icon-512.png",
+]
+# Ship the platform's PDFium dynamic library inside the bundle. Populate this folder
+# with `just setup-pdfium` before bundling.
+resources = ["third_party/pdfium/lib"]
+category = "Productivity"
+short_description = "Dual-screen PDF presenter for Typst & LaTeX slides."
+long_description = """
+A fast, native dual-screen PDF presenter inspired by pympress. On the presenter
+screen it shows the current slide, a next-slide preview, speaker notes, and a talk
+timer; on the audience screen it shows just the slide, fullscreen.
+"""
+
+[dependencies]
+eframe = "0.29"
+egui = "0.29"
+egui_extras = { version = "0.29", features = ["image"] }
+pdfium-render = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
+directories = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rfd = "0.15"
+display-info = "0.5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.dev]
+opt-level = 1          # keep debug builds snappy for PDF rendering
+
+[profile.dev.package."*"]
+opt-level = 3          # optimize deps (pdfium/image) even in dev
