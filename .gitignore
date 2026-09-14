@@ -1,2 +1,43 @@
+# Rust / Cargo
 /target
+**/*.rs.bk
+*.pdb
+
+# NOTE: Cargo.lock is intentionally committed (this is a binary/application crate).
+
+# Bundled native libraries (fetched by `just setup-pdfium`)
 /third_party/pdfium
+
+# Release binary copied by `just build`
+/bin
+
+# Environment / secrets
+.env
+.env.*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux
+*~
+.directory
+
+# Editors / IDEs
+/.idea
+/.vscode
+*.swp
+*.swo
+*.iml
+
+# Misc
+*.log
+
+AGENT.md
+AGENTS.md
