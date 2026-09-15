@@ -342,16 +342,33 @@ impl PresenterApp {
         self.clear_drawings();
       }
       // Scroll wheel navigates slides (down = next, up = previous), like the arrows.
+      // A real wheel reports discrete Line notches — one slide each, by sign. Trackpad
+      // pixel scrolling (Point) accumulates against a threshold.
       if self.document.is_some() {
-        const STEP: f32 = 40.0;
-        self.scroll_accum += i.raw_scroll_delta.y;
-        while self.scroll_accum <= -STEP {
-          self.session.next();
-          self.scroll_accum += STEP;
-        }
-        while self.scroll_accum >= STEP {
-          self.session.prev();
-          self.scroll_accum -= STEP;
+        const POINT_STEP: f32 = 40.0;
+        for event in &i.events {
+          if let egui::Event::MouseWheel { unit, delta, .. } = event {
+            match unit {
+              egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+                if delta.y < 0.0 {
+                  self.session.next();
+                } else if delta.y > 0.0 {
+                  self.session.prev();
+                }
+              }
+              egui::MouseWheelUnit::Point => {
+                self.scroll_accum += delta.y;
+                while self.scroll_accum <= -POINT_STEP {
+                  self.session.next();
+                  self.scroll_accum += POINT_STEP;
+                }
+                while self.scroll_accum >= POINT_STEP {
+                  self.session.prev();
+                  self.scroll_accum -= POINT_STEP;
+                }
+              }
+            }
+          }
         }
       } else {
         self.scroll_accum = 0.0;
