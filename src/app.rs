@@ -202,6 +202,20 @@ impl PresenterApp {
     self.status = "Open a PDF to begin (O).".to_owned();
   }
 
+  /// Open the first PDF dropped onto the window (drag & drop).
+  fn handle_dropped_files(&mut self, ctx: &egui::Context) {
+    let dropped = ctx.input(|i| {
+      i.raw
+        .dropped_files
+        .iter()
+        .filter_map(|f| f.path.clone())
+        .find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")))
+    });
+    if let Some(path) = dropped {
+      self.open(&path);
+    }
+  }
+
   fn handle_keys(&mut self, ctx: &egui::Context) {
     let mut open = false;
     let mut font_delta = 0.0;
@@ -603,6 +617,7 @@ impl PresenterApp {
 impl eframe::App for PresenterApp {
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     self.handle_keys(ctx);
+    self.handle_dropped_files(ctx);
 
     if self.session.timer().is_running() {
       ctx.request_repaint_after(Duration::from_millis(250));

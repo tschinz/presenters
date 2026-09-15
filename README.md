@@ -81,7 +81,11 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 | `O` | Open a PDF |
 | Double-click (audience) | Toggle fullscreen |
 
-The **Shortcuts** button in the header shows this list in-app.
+**Laser pointer:** hold the mouse button over the **current slide** in the presenter window
+and a dot appears at that spot on the audience screen, following your cursor; release to hide.
+
+You can also **drag & drop a PDF onto the window** to open it. The **Shortcuts** button in
+the header shows the key list in-app.
 
 ## Packaging
 
