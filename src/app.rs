@@ -33,6 +33,34 @@ enum Region {
   Notes,
 }
 
+/// What holding the mouse over the current slide does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum InputMode {
+  /// Show a laser-pointer dot.
+  Pointer,
+  /// Draw freehand lines.
+  Draw,
+}
+
+/// A freehand line: points normalized (0..1) within the slide, plus a width factor
+/// (multiplied by the slide's on-screen height to get pixels).
+struct Stroke {
+  points: Vec<egui::Pos2>,
+  width_factor: f32,
+}
+
+/// Everything the current-slide pane needs to service pointer/drawing input.
+struct SlideInput<'a> {
+  mode: InputMode,
+  /// Pointer/line size factor (from the header control).
+  size: f32,
+  pointer: &'a mut Option<egui::Pos2>,
+  /// Strokes for the current page (drawn onto this slide).
+  strokes: &'a mut Vec<Stroke>,
+  /// Whether a stroke is currently being drawn (mouse held since press).
+  drawing: &'a mut bool,
+}
+
 const HEADER_FONT: f32 = 13.0;
 const MIN_FOOTER_FONT: f32 = 12.0;
 const MAX_FOOTER_FONT: f32 = 48.0;
@@ -66,9 +94,17 @@ pub struct PresenterApp {
   /// (so OS fullscreen targets the monitor we just moved it to).
   audience_apply_fullscreen: bool,
   show_shortcuts: bool,
+  /// Pointer vs. drawing (toggle with D).
+  mode: InputMode,
   /// Laser-pointer position, normalized (0..1) within the slide, while the mouse
   /// button is held over the presenter's current slide. `None` = no pointer shown.
   pointer_norm: Option<egui::Pos2>,
+  /// Freehand annotations per page (kept while navigating; cleared when the file closes).
+  strokes: HashMap<usize, Vec<Stroke>>,
+  /// Whether a stroke is currently being drawn.
+  drawing: bool,
+  /// Accumulated mouse-wheel delta, for scroll-to-navigate.
+  scroll_accum: f32,
   /// Lazily-loaded faint logo shown on the start screen.
   logo: Option<egui::TextureHandle>,
   /// Persistence bookkeeping.
@@ -96,7 +132,11 @@ impl PresenterApp {
       audience_needs_place: false,
       audience_apply_fullscreen: false,
       show_shortcuts: false,
+      mode: InputMode::Pointer,
       pointer_norm: None,
+      strokes: HashMap::new(),
+      drawing: false,
+      scroll_accum: 0.0,
       logo: None,
       dirty: false,
       last_save: Instant::now(),
@@ -190,6 +230,22 @@ impl PresenterApp {
     self.dirty = true;
   }
 
+  /// Toggle between laser-pointer and drawing.
+  fn toggle_mode(&mut self) {
+    self.mode = match self.mode {
+      InputMode::Pointer => InputMode::Draw,
+      InputMode::Draw => InputMode::Pointer,
+    };
+    self.drawing = false;
+    self.pointer_norm = None;
+  }
+
+  /// Remove all freehand drawings.
+  fn clear_drawings(&mut self) {
+    self.strokes.clear();
+    self.drawing = false;
+  }
+
   fn flip_layout(&mut self) {
     self.layout_index = (self.layout_index + 1) % NUM_LAYOUTS;
     self.dirty = true;
@@ -214,6 +270,9 @@ impl PresenterApp {
     self.presenting = false;
     self.blanked = false;
     self.pointer_norm = None;
+    self.strokes.clear();
+    self.drawing = false;
+    self.mode = InputMode::Pointer;
     self.session = Session::new(0);
     self.cache.clear();
     self.status = "Open a PDF to begin (O).".to_owned();
@@ -276,6 +335,27 @@ impl PresenterApp {
       if i.key_pressed(Key::B) {
         self.blanked = !self.blanked;
       }
+      if i.key_pressed(Key::P) {
+        self.toggle_mode();
+      }
+      if i.key_pressed(Key::D) {
+        self.clear_drawings();
+      }
+      // Scroll wheel navigates slides (down = next, up = previous), like the arrows.
+      if self.document.is_some() {
+        const STEP: f32 = 40.0;
+        self.scroll_accum += i.raw_scroll_delta.y;
+        while self.scroll_accum <= -STEP {
+          self.session.next();
+          self.scroll_accum += STEP;
+        }
+        while self.scroll_accum >= STEP {
+          self.session.prev();
+          self.scroll_accum -= STEP;
+        }
+      } else {
+        self.scroll_accum = 0.0;
+      }
       close = i.key_pressed(Key::W);
       open = i.key_pressed(Key::O);
     });
@@ -298,38 +378,16 @@ impl PresenterApp {
       ui.horizontal_wrapped(|ui| {
         let small = |s: &str| egui::RichText::new(s).size(HEADER_FONT);
 
-        if ui.button(small("Open (O)")).clicked() {
-          self.pick_file();
-        }
+        let doc_open = self.document.is_some();
+
+        // ── General ──
         if ui.button(small("Shortcuts")).clicked() {
           self.show_shortcuts = !self.show_shortcuts;
         }
-
-        ui.separator();
-        ui.label(small("Footer size"));
-        if ui.button(small(" − ")).on_hover_text("Smaller (-)").clicked() {
-          self.adjust_font(-2.0);
+        if ui.button(small("Open (O)")).clicked() {
+          self.pick_file();
         }
-        if ui.button(small(" + ")).on_hover_text("Larger (+)").clicked() {
-          self.adjust_font(2.0);
-        }
-
-        ui.separator();
-        ui.label(small("Pointer size"));
-        if ui.button(small(" − ")).on_hover_text("Smaller pointer dot").clicked() {
-          self.adjust_pointer(-POINTER_STEP);
-        }
-        if ui.button(small(" + ")).on_hover_text("Larger pointer dot").clicked() {
-          self.adjust_pointer(POINTER_STEP);
-        }
-
-        ui.separator();
-        if ui.button(small("⇄ Layout (L)")).on_hover_text("Cycle panel arrangements").clicked() {
-          self.flip_layout();
-        }
-
-        if self.document.is_some() {
-          ui.separator();
+        if doc_open {
           if ui.button(small("✕ Close (W)")).clicked() {
             self.close_file();
           }
@@ -349,6 +407,41 @@ impl PresenterApp {
           }
           if ui.button(small("↺ (R)")).clicked() {
             self.session.timer_mut().reset();
+          }
+        }
+
+        // ── Display ──
+        ui.separator();
+        ui.label(small("Footer size"));
+        if ui.button(small(" − ")).on_hover_text("Smaller (-)").clicked() {
+          self.adjust_font(-2.0);
+        }
+        if ui.button(small(" + ")).on_hover_text("Larger (+)").clicked() {
+          self.adjust_font(2.0);
+        }
+        if ui.button(small("⇄ Layout (L)")).on_hover_text("Cycle panel arrangements").clicked() {
+          self.flip_layout();
+        }
+
+        // ── Drawing ──
+        ui.separator();
+        ui.label(small("Pointer size"));
+        if ui.button(small(" − ")).on_hover_text("Smaller pointer / thinner line").clicked() {
+          self.adjust_pointer(-POINTER_STEP);
+        }
+        if ui.button(small(" + ")).on_hover_text("Larger pointer / thicker line").clicked() {
+          self.adjust_pointer(POINTER_STEP);
+        }
+        if doc_open {
+          let mode_label = match self.mode {
+            InputMode::Pointer => "✏ Draw (P)",
+            InputMode::Draw => "• Pointer (P)",
+          };
+          if ui.button(small(mode_label)).on_hover_text("Toggle laser pointer / drawing").clicked() {
+            self.toggle_mode();
+          }
+          if ui.button(small("🗑 Delete (D)")).on_hover_text("Clear all drawings").clicked() {
+            self.clear_drawings();
           }
         }
 
@@ -406,7 +499,9 @@ impl PresenterApp {
           ("L", "Flip layout (H/V with no notes; 4 presets with notes)"),
           ("+ / −", "Footer font larger / smaller"),
           ("O", "Open a PDF"),
-          ("Hold mouse on current slide", "Laser pointer (dot on the audience screen)"),
+          ("Hold mouse on current slide", "Laser pointer / draw (on the audience screen)"),
+          ("P", "Toggle laser pointer / drawing"),
+          ("D", "Delete all drawings"),
           ("(audience) double-click", "Toggle fullscreen"),
         ];
         egui::Grid::new("shortcuts-grid").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
@@ -535,12 +630,23 @@ impl PresenterApp {
       layout_index,
       pointer_norm,
       pointer_size,
+      mode,
+      strokes,
+      drawing,
       ..
     } = self;
-    let pointer_size = *pointer_size;
     let doc = document.as_ref();
     let screen = ctx.screen_rect();
     let has_notes = doc.map(|d| d.notes_region().is_some()).unwrap_or(false);
+    // Input for the current-slide pane (pointer/drawing). Consumed once by the Current pane.
+    let page = session.current();
+    let mut input = Some(SlideInput {
+      mode: *mode,
+      size: *pointer_size,
+      pointer: pointer_norm,
+      strokes: strokes.entry(page).or_default(),
+      drawing,
+    });
 
     if !has_notes {
       if *layout_index % 2 == 0 {
@@ -551,7 +657,7 @@ impl PresenterApp {
             render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, input.take());
         });
       } else {
         egui::TopBottomPanel::bottom("nn-next-v")
@@ -561,7 +667,7 @@ impl PresenterApp {
             render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, input.take());
         });
       }
       return;
@@ -584,7 +690,7 @@ impl PresenterApp {
             });
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, input.take());
         });
       }
       1 => {
@@ -603,7 +709,7 @@ impl PresenterApp {
             });
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, input.take());
         });
       }
       2 => {
@@ -620,7 +726,7 @@ impl PresenterApp {
             render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, None);
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, input.take());
         });
       }
       _ => {
@@ -639,7 +745,7 @@ impl PresenterApp {
             });
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, input.take());
         });
       }
     }
@@ -730,9 +836,15 @@ impl PresenterApp {
             let page = self.session.current();
             let aspect = doc.slide_aspect(page);
             let rect = draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect);
-            // Laser pointer dot, mirrored from the presenter's current slide.
-            if let (Some(rect), Some(n)) = (rect, self.pointer_norm) {
-              draw_pointer_dot(ui.painter(), rect, n, self.pointer_size);
+            if let Some(rect) = rect {
+              // Freehand annotations for this page.
+              if let Some(strokes) = self.strokes.get(&page) {
+                draw_strokes(ui.painter(), rect, strokes);
+              }
+              // Laser pointer dot, mirrored from the presenter's current slide.
+              if let Some(n) = self.pointer_norm {
+                draw_pointer_dot(ui.painter(), rect, n, self.pointer_size);
+              }
             }
           }
         });
@@ -795,10 +907,10 @@ fn geom_changed(old: Option<Geometry>, new: Geometry) -> bool {
 
 /// Render one panel's content (a titled, aspect-fitted page region).
 ///
-/// When `pointer` is `Some` (the current-slide pane), the slide becomes a laser-pointer
-/// surface: while the mouse button is held over it, the normalized cursor position is
-/// written to the slot (and a dot is drawn here too as presenter feedback); releasing
-/// clears it.
+/// When `input` is `Some` (the current-slide pane), the slide becomes a laser-pointer /
+/// drawing surface: while the mouse is held over it, it either tracks the pointer (a dot)
+/// or extends a freehand stroke, depending on the mode. Existing strokes for the page are
+/// always drawn on top of the slide.
 fn render_pane(
   ui: &mut egui::Ui,
   ctx: &egui::Context,
@@ -806,7 +918,7 @@ fn render_pane(
   doc: Option<&Document>,
   session: &Session,
   kind: PaneKind,
-  pointer: Option<(f32, &mut Option<egui::Pos2>)>,
+  input: Option<SlideInput<'_>>,
 ) {
   ui.small(match kind {
     PaneKind::Current => "Current",
@@ -831,19 +943,47 @@ fn render_pane(
   match (page, aspect) {
     (Some(p), Some(a)) => {
       let rect = draw_slide_region(ui, ctx, cache, doc, p, region, a);
-      if let (Some((size, slot)), Some(rect)) = (pointer, rect) {
+      if let (Some(inp), Some(rect)) = (input, rect) {
         let resp = ui.interact(rect, ui.id().with("laser"), egui::Sense::click_and_drag());
-        if resp.is_pointer_button_down_on()
-          && let Some(pos) = resp.interact_pointer_pos()
-        {
-          let nx = ((pos.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
-          let ny = ((pos.y - rect.top()) / rect.height().max(1.0)).clamp(0.0, 1.0);
-          *slot = Some(egui::pos2(nx, ny));
-        } else if !resp.is_pointer_button_down_on() {
-          *slot = None;
+        let to_norm = |pos: egui::Pos2| {
+          egui::pos2(
+            ((pos.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0),
+            ((pos.y - rect.top()) / rect.height().max(1.0)).clamp(0.0, 1.0),
+          )
+        };
+        let held = resp.is_pointer_button_down_on();
+        match inp.mode {
+          InputMode::Pointer => {
+            *inp.pointer = None;
+            *inp.drawing = false;
+            if held && let Some(pos) = resp.interact_pointer_pos() {
+              *inp.pointer = Some(to_norm(pos));
+            }
+          }
+          InputMode::Draw => {
+            *inp.pointer = None;
+            if held && let Some(pos) = resp.interact_pointer_pos() {
+              let n = to_norm(pos);
+              if !*inp.drawing {
+                *inp.drawing = true;
+                inp.strokes.push(Stroke {
+                  points: vec![n],
+                  width_factor: 0.006 * inp.size,
+                });
+              } else if let Some(last) = inp.strokes.last_mut()
+                && last.points.last().is_none_or(|lp| (lp.x - n.x).abs() + (lp.y - n.y).abs() > 0.0015)
+              {
+                last.points.push(n);
+              }
+            } else {
+              *inp.drawing = false;
+            }
+          }
         }
-        if let Some(n) = *slot {
-          draw_pointer_dot(ui.painter(), rect, n, size);
+        // Draw the page's strokes, then the pointer dot (if any) on top.
+        draw_strokes(ui.painter(), rect, inp.strokes);
+        if let Some(n) = *inp.pointer {
+          draw_pointer_dot(ui.painter(), rect, n, inp.size);
         }
       }
     }
@@ -869,6 +1009,26 @@ fn draw_pointer_dot(painter: &egui::Painter, rect: egui::Rect, norm: egui::Pos2,
   painter.circle_filled(center, r * 2.2, egui::Color32::from_rgba_unmultiplied(255, 40, 40, 40));
   painter.circle_filled(center, r, egui::Color32::from_rgba_unmultiplied(230, 30, 30, 140));
   painter.circle_stroke(center, r, egui::Stroke::new(1.5_f32, egui::Color32::from_rgba_unmultiplied(150, 0, 0, 140)));
+}
+
+/// Draw freehand strokes (normalized points) onto `rect`.
+fn draw_strokes(painter: &egui::Painter, rect: egui::Rect, strokes: &[Stroke]) {
+  // Semi-transparent red, matching the pointer dot's core.
+  let color = egui::Color32::from_rgba_unmultiplied(230, 30, 30, 140);
+  let to_screen = |p: egui::Pos2| egui::pos2(rect.left() + p.x * rect.width(), rect.top() + p.y * rect.height());
+  for s in strokes {
+    let w = (s.width_factor * rect.height()).max(1.0);
+    match s.points.as_slice() {
+      [] => {}
+      [p] => {
+        painter.circle_filled(to_screen(*p), (w * 0.5).max(1.0), color);
+      }
+      _ => {
+        let pts: Vec<egui::Pos2> = s.points.iter().map(|p| to_screen(*p)).collect();
+        painter.add(egui::Shape::line(pts, egui::Stroke::new(w, color)));
+      }
+    }
+  }
 }
 
 /// Draw an aspect-fitted image of a page region into the available area (letterboxed).

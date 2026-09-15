@@ -67,8 +67,8 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 
 | Key | Action |
 | --- | --- |
-| `→` / `Space` / `PageDown` | Next slide |
-| `←` / `PageUp` | Previous slide |
+| `→` / `Space` / `PageDown` / scroll down | Next slide |
+| `←` / `PageUp` / scroll up | Previous slide |
 | `Home` / `End` | First / last slide |
 | `F5` | Start presentation (audience window) |
 | `Esc` | Quit presentation |
@@ -79,11 +79,17 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 | `L` | Flip layout (H/V with no notes; 4 presets with notes) |
 | `+` / `−` | Footer font larger / smaller |
 | `O` | Open a PDF |
+| `P` | Toggle laser pointer / drawing |
+| `D` | Delete all drawings |
 | Double-click (audience) | Toggle fullscreen |
 
-**Laser pointer:** hold the mouse button over the **current slide** in the presenter window
-and a semi-transparent dot appears at that spot on the audience screen, following your cursor;
-release to hide. Adjust the dot size with the **Pointer size −/+** buttons in the header.
+**Laser pointer & drawing:** hold the mouse button over the **current slide** in the presenter
+window and a semi-transparent dot appears at that spot on the audience screen, following your
+cursor; release to hide. Press **`P`** (or the header button) to toggle **drawing** mode, where
+holding and dragging draws freehand lines on the slide instead; **`D`** deletes all drawings.
+The **Pointer size −/+** buttons in the header set both the dot size and the line thickness.
+Drawings are kept per slide while you navigate, and cleared when you close the file (never
+saved to disk).
 
 You can also **drag & drop a PDF onto the window** to open it. The **Shortcuts** button in
 the header shows the key list in-app.
