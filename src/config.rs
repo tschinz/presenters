@@ -48,6 +48,7 @@ pub struct RecentEntry {
 #[serde(default)]
 pub struct State {
   pub footer_font: f32,
+  pub pointer_size: f32,
   pub layout_index: usize,
   pub audience_fullscreen: bool,
   pub audience_geometry: Option<Geometry>,
@@ -59,6 +60,7 @@ impl Default for State {
   fn default() -> Self {
     Self {
       footer_font: 24.0,
+      pointer_size: 1.0,
       layout_index: 0,
       audience_fullscreen: true,
       audience_geometry: None,

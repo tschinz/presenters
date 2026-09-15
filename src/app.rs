@@ -36,6 +36,9 @@ enum Region {
 const HEADER_FONT: f32 = 13.0;
 const MIN_FOOTER_FONT: f32 = 12.0;
 const MAX_FOOTER_FONT: f32 = 48.0;
+const MIN_POINTER_SIZE: f32 = 0.25;
+const MAX_POINTER_SIZE: f32 = 4.0;
+const POINTER_STEP: f32 = 0.25;
 const NUM_LAYOUTS: usize = 4;
 const MAX_RECENT: usize = 15;
 const SAVE_THROTTLE: Duration = Duration::from_millis(1200);
@@ -46,6 +49,8 @@ pub struct PresenterApp {
   cache: TextureCache,
   status: String,
   footer_font: f32,
+  /// Laser-pointer dot size factor (1.0 = default).
+  pointer_size: f32,
   layout_index: usize,
   presenting: bool,
   /// When true, the audience window shows solid black instead of the slide.
@@ -61,6 +66,9 @@ pub struct PresenterApp {
   /// (so OS fullscreen targets the monitor we just moved it to).
   audience_apply_fullscreen: bool,
   show_shortcuts: bool,
+  /// Laser-pointer position, normalized (0..1) within the slide, while the mouse
+  /// button is held over the presenter's current slide. `None` = no pointer shown.
+  pointer_norm: Option<egui::Pos2>,
   /// Lazily-loaded faint logo shown on the start screen.
   logo: Option<egui::TextureHandle>,
   /// Persistence bookkeeping.
@@ -77,6 +85,7 @@ impl PresenterApp {
       cache: TextureCache::new(48),
       status: "Open a PDF to begin (O).".to_owned(),
       footer_font: st.footer_font,
+      pointer_size: st.pointer_size.clamp(MIN_POINTER_SIZE, MAX_POINTER_SIZE),
       layout_index: st.layout_index % NUM_LAYOUTS,
       presenting: false,
       blanked: false,
@@ -87,6 +96,7 @@ impl PresenterApp {
       audience_needs_place: false,
       audience_apply_fullscreen: false,
       show_shortcuts: false,
+      pointer_norm: None,
       logo: None,
       dirty: false,
       last_save: Instant::now(),
@@ -148,6 +158,7 @@ impl PresenterApp {
   fn snapshot(&self) -> config::State {
     config::State {
       footer_font: self.footer_font,
+      pointer_size: self.pointer_size,
       layout_index: self.layout_index,
       audience_fullscreen: self.audience_fullscreen,
       audience_geometry: self.audience_geometry,
@@ -174,6 +185,11 @@ impl PresenterApp {
     self.dirty = true;
   }
 
+  fn adjust_pointer(&mut self, delta: f32) {
+    self.pointer_size = (self.pointer_size + delta).clamp(MIN_POINTER_SIZE, MAX_POINTER_SIZE);
+    self.dirty = true;
+  }
+
   fn flip_layout(&mut self) {
     self.layout_index = (self.layout_index + 1) % NUM_LAYOUTS;
     self.dirty = true;
@@ -197,6 +213,7 @@ impl PresenterApp {
     self.document = None;
     self.presenting = false;
     self.blanked = false;
+    self.pointer_norm = None;
     self.session = Session::new(0);
     self.cache.clear();
     self.status = "Open a PDF to begin (O).".to_owned();
@@ -298,6 +315,15 @@ impl PresenterApp {
         }
 
         ui.separator();
+        ui.label(small("Pointer size"));
+        if ui.button(small(" − ")).on_hover_text("Smaller pointer dot").clicked() {
+          self.adjust_pointer(-POINTER_STEP);
+        }
+        if ui.button(small(" + ")).on_hover_text("Larger pointer dot").clicked() {
+          self.adjust_pointer(POINTER_STEP);
+        }
+
+        ui.separator();
         if ui.button(small("⇄ Layout (L)")).on_hover_text("Cycle panel arrangements").clicked() {
           self.flip_layout();
         }
@@ -380,6 +406,7 @@ impl PresenterApp {
           ("L", "Flip layout (H/V with no notes; 4 presets with notes)"),
           ("+ / −", "Footer font larger / smaller"),
           ("O", "Open a PDF"),
+          ("Hold mouse on current slide", "Laser pointer (dot on the audience screen)"),
           ("(audience) double-click", "Toggle fullscreen"),
         ];
         egui::Grid::new("shortcuts-grid").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
@@ -431,6 +458,8 @@ impl PresenterApp {
         if ui.button("Open a PDF… (O)").clicked() {
           self.pick_file();
         }
+        ui.add_space(4.0);
+        ui.weak("… or drag & drop a PDF onto the window");
       });
       ui.add_space(16.0);
 
@@ -504,8 +533,11 @@ impl PresenterApp {
       session,
       cache,
       layout_index,
+      pointer_norm,
+      pointer_size,
       ..
     } = self;
+    let pointer_size = *pointer_size;
     let doc = document.as_ref();
     let screen = ctx.screen_rect();
     let has_notes = doc.map(|d| d.notes_region().is_some()).unwrap_or(false);
@@ -516,20 +548,20 @@ impl PresenterApp {
           .resizable(true)
           .default_width(screen.width() * 0.5)
           .show(ctx, |ui| {
-            render_pane(ui, ctx, cache, doc, session, PaneKind::Next, "Next");
+            render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, "Current");
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
         });
       } else {
         egui::TopBottomPanel::bottom("nn-next-v")
           .resizable(true)
           .default_height(screen.height() * 0.45)
           .show(ctx, |ui| {
-            render_pane(ui, ctx, cache, doc, session, PaneKind::Next, "Next");
+            render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, "Current");
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
         });
       }
       return;
@@ -545,14 +577,14 @@ impl PresenterApp {
               .resizable(true)
               .default_height(ui.available_height() * 0.5)
               .show_inside(ui, |ui| {
-                render_pane(ui, ctx, cache, doc, session, PaneKind::Next, "Next");
+                render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
               });
             egui::CentralPanel::default().show_inside(ui, |ui| {
-              render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, "Notes");
+              render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, None);
             });
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, "Current");
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
         });
       }
       1 => {
@@ -564,14 +596,14 @@ impl PresenterApp {
               .resizable(true)
               .default_height(ui.available_height() * 0.5)
               .show_inside(ui, |ui| {
-                render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, "Notes");
+                render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, None);
               });
             egui::CentralPanel::default().show_inside(ui, |ui| {
-              render_pane(ui, ctx, cache, doc, session, PaneKind::Next, "Next");
+              render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
             });
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, "Current");
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
         });
       }
       2 => {
@@ -579,16 +611,16 @@ impl PresenterApp {
           .resizable(true)
           .default_width(screen.width() * 0.24)
           .show(ctx, |ui| {
-            render_pane(ui, ctx, cache, doc, session, PaneKind::Next, "Next");
+            render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
           });
         egui::SidePanel::right("col-notes")
           .resizable(true)
           .default_width(screen.width() * 0.28)
           .show(ctx, |ui| {
-            render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, "Notes");
+            render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, None);
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, "Current");
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
         });
       }
       _ => {
@@ -600,14 +632,14 @@ impl PresenterApp {
               .resizable(true)
               .default_width(ui.available_width() * 0.5)
               .show_inside(ui, |ui| {
-                render_pane(ui, ctx, cache, doc, session, PaneKind::Next, "Next");
+                render_pane(ui, ctx, cache, doc, session, PaneKind::Next, None);
               });
             egui::CentralPanel::default().show_inside(ui, |ui| {
-              render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, "Notes");
+              render_pane(ui, ctx, cache, doc, session, PaneKind::Notes, None);
             });
           });
         egui::CentralPanel::default().show(ctx, |ui| {
-          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, "Current");
+          render_pane(ui, ctx, cache, doc, session, PaneKind::Current, Some((pointer_size, &mut *pointer_norm)));
         });
       }
     }
@@ -697,7 +729,11 @@ impl PresenterApp {
           {
             let page = self.session.current();
             let aspect = doc.slide_aspect(page);
-            draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect);
+            let rect = draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect);
+            // Laser pointer dot, mirrored from the presenter's current slide.
+            if let (Some(rect), Some(n)) = (rect, self.pointer_norm) {
+              draw_pointer_dot(ui.painter(), rect, n, self.pointer_size);
+            }
           }
         });
 
@@ -758,10 +794,25 @@ fn geom_changed(old: Option<Geometry>, new: Geometry) -> bool {
 }
 
 /// Render one panel's content (a titled, aspect-fitted page region).
-fn render_pane(ui: &mut egui::Ui, ctx: &egui::Context, cache: &mut TextureCache, doc: Option<&Document>, session: &Session, kind: PaneKind, title: &str) {
-  if !title.is_empty() {
-    ui.small(title);
-  }
+///
+/// When `pointer` is `Some` (the current-slide pane), the slide becomes a laser-pointer
+/// surface: while the mouse button is held over it, the normalized cursor position is
+/// written to the slot (and a dot is drawn here too as presenter feedback); releasing
+/// clears it.
+fn render_pane(
+  ui: &mut egui::Ui,
+  ctx: &egui::Context,
+  cache: &mut TextureCache,
+  doc: Option<&Document>,
+  session: &Session,
+  kind: PaneKind,
+  pointer: Option<(f32, &mut Option<egui::Pos2>)>,
+) {
+  ui.small(match kind {
+    PaneKind::Current => "Current",
+    PaneKind::Next => "Next",
+    PaneKind::Notes => "Notes",
+  });
   let Some(doc) = doc else { return };
   let current = session.current();
 
@@ -778,7 +829,24 @@ fn render_pane(ui: &mut egui::Ui, ctx: &egui::Context, cache: &mut TextureCache,
   };
 
   match (page, aspect) {
-    (Some(p), Some(a)) => draw_slide_region(ui, ctx, cache, doc, p, region, a),
+    (Some(p), Some(a)) => {
+      let rect = draw_slide_region(ui, ctx, cache, doc, p, region, a);
+      if let (Some((size, slot)), Some(rect)) = (pointer, rect) {
+        let resp = ui.interact(rect, ui.id().with("laser"), egui::Sense::click_and_drag());
+        if resp.is_pointer_button_down_on()
+          && let Some(pos) = resp.interact_pointer_pos()
+        {
+          let nx = ((pos.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+          let ny = ((pos.y - rect.top()) / rect.height().max(1.0)).clamp(0.0, 1.0);
+          *slot = Some(egui::pos2(nx, ny));
+        } else if !resp.is_pointer_button_down_on() {
+          *slot = None;
+        }
+        if let Some(n) = *slot {
+          draw_pointer_dot(ui.painter(), rect, n, size);
+        }
+      }
+    }
     _ => {
       let msg = match kind {
         PaneKind::Next => "— end —",
@@ -792,24 +860,45 @@ fn render_pane(ui: &mut egui::Ui, ctx: &egui::Context, cache: &mut TextureCache,
   }
 }
 
+/// Draw the laser-pointer dot at a normalized position (0..1) within `rect`,
+/// scaled by `size` (1.0 = default).
+fn draw_pointer_dot(painter: &egui::Painter, rect: egui::Rect, norm: egui::Pos2, size: f32) {
+  let center = egui::pos2(rect.left() + norm.x * rect.width(), rect.top() + norm.y * rect.height());
+  let r = (rect.height() * 0.012 * size).max(3.0);
+  // Semi-transparent: a faint halo and a translucent red core.
+  painter.circle_filled(center, r * 2.2, egui::Color32::from_rgba_unmultiplied(255, 40, 40, 40));
+  painter.circle_filled(center, r, egui::Color32::from_rgba_unmultiplied(230, 30, 30, 140));
+  painter.circle_stroke(center, r, egui::Stroke::new(1.5_f32, egui::Color32::from_rgba_unmultiplied(150, 0, 0, 140)));
+}
+
 /// Draw an aspect-fitted image of a page region into the available area (letterboxed).
-fn draw_slide_region(ui: &mut egui::Ui, ctx: &egui::Context, cache: &mut TextureCache, doc: &Document, page: usize, region: Region, aspect: f32) {
-  let avail = ui.available_size();
+/// Returns the on-screen rect the image occupies (for overlays such as the pointer dot).
+fn draw_slide_region(
+  ui: &mut egui::Ui,
+  ctx: &egui::Context,
+  cache: &mut TextureCache,
+  doc: &Document,
+  page: usize,
+  region: Region,
+  aspect: f32,
+) -> Option<egui::Rect> {
+  let full = ui.available_rect_before_wrap();
   let ppp = ctx.pixels_per_point();
 
-  let (mut w, mut h) = (avail.x, avail.x / aspect);
-  if h > avail.y {
-    h = avail.y;
-    w = avail.y * aspect;
+  let (mut w, mut h) = (full.width(), full.width() / aspect);
+  if h > full.height() {
+    h = full.height();
+    w = full.height() * aspect;
   }
+  let img_rect = egui::Rect::from_center_size(full.center(), egui::vec2(w, h));
   let px = [(w * ppp).round().max(1.0) as u32, (h * ppp).round().max(1.0) as u32];
 
   if let Some(tex) = cache.get_or_render(ctx, doc, page, region, px) {
-    ui.centered_and_justified(|ui| {
-      ui.image((tex.id(), egui::vec2(w, h)));
-    });
+    ui.put(img_rect, egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(w, h))));
+    Some(img_rect)
   } else {
-    ui.centered_and_justified(|ui| ui.spinner());
+    ui.put(img_rect, egui::Spinner::new());
+    None
   }
 }
 
