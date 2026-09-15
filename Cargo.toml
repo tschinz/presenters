@@ -3,6 +3,10 @@ name = "rust-presenters"
 version = "0.1.0"
 edition = "2024"
 description = "Fast native dual-screen PDF presenter (pympress-like) for Typst/LaTeX slides"
+authors = ["Silvan Zahno <silvan.zahno@hevs.ch>"]
+license = "MIT"
+repository = "https://github.com/tschinz/presenters"
+readme = "README.md"
 
 [package.metadata.bundle]
 name = "presenters"

@@ -127,19 +127,9 @@ just build      # release build into bin/
 
 Tests are headless and need the PDFium library present (run `just setup-pdfium` first).
 
-## Project status
-
-Milestones 1–3 are done: open & render, notes detection & split, and the two-window
-presentation with an adaptive layout. Next up: a start/library window with recent files, and
-auto-placing the audience window on the external monitor. See [AGENTS.md](AGENTS.md) for the
-full design and roadmap.
-
 ## License
 
-TBD.
+Licensed under the MIT license ([LICENSE](LICENSE)).
 
----
-
-<div align="center">
-<sub>Logo: a Rust crab minding your PDFs. 🦀📄</sub>
-</div>
+This project links against and bundles the PDFium library (BSD-3-Clause); see
+[THIRD_PARTY.md](THIRD_PARTY.md).
