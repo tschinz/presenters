@@ -116,6 +116,13 @@ Bundles land under `target/release/bundle/<format>/`. The recipes run `ensure-pd
 first, so the matching PDFium library is downloaded and shipped inside the bundle; at
 runtime the app finds it there (e.g. macOS `Contents/Resources/`) with no external setup.
 
+**macOS signing.** cargo-bundle adds files after the binary is signed, which invalidates
+the signature and makes macOS report the app as "damaged". `just bundle-mac` therefore
+**ad-hoc signs** the finished bundle so it runs locally. An app *downloaded* from elsewhere
+is also quarantined — open it the first time via right-click → **Open**, or clear the flag
+with `xattr -dr com.apple.quarantine <app>`. Distributing without any warning requires a
+Developer ID signature and notarization (an Apple Developer account).
+
 ## Development
 
 ```bash

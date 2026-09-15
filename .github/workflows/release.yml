@@ -27,8 +27,14 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSL -o /tmp/pdfium.tgz \
             "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz"
           tar xzf /tmp/pdfium.tgz -C third_party/pdfium
-      - name: Bundle .app
-        run: cargo bundle --release --format osx
+      - name: Bundle and ad-hoc sign .app
+        run: |
+          cargo bundle --release --format osx
+          app=$(echo target/release/bundle/osx/*.app)
+          # Ad-hoc sign (cargo-bundle invalidates the linker signature); without this
+          # macOS reports the app as "damaged".
+          codesign --force --deep --sign - "$app"
+          codesign --verify --strict "$app"
       - name: Zip .app
         run: |
           ditto -c -k --sequesterRsrc --keepParent \

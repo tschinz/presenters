@@ -173,9 +173,17 @@ run-notes args=args:
 bundle: ensure-pdfium
     cargo bundle --release
 
-# macOS .app bundle
+# macOS .app bundle (ad-hoc code-signed so macOS won't report it as "damaged")
 bundle-mac: ensure-pdfium
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf target/release/bundle/osx
     cargo bundle --release --format osx
+    # cargo-bundle adds files after the linker's signature, which invalidates it and
+    # makes macOS refuse the app. Re-sign the whole bundle ad-hoc (no certificate).
+    app=$(echo target/release/bundle/osx/*.app)
+    codesign --force --deep --sign - "$app"
+    codesign --verify --strict "$app" && echo "✓ Ad-hoc signed: $app"
 
 # Linux .deb package
 bundle-deb: ensure-pdfium
