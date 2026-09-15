@@ -78,30 +78,42 @@ impl Document {
     self.notes
   }
 
+  /// Whether the document uses speaker notes at all (drives the presenter layout).
+  pub fn has_notes(&self) -> bool {
+    self.notes != NotesLayout::None
+  }
+
+  /// Whether *this specific page* carries the split. In a notes deck, most pages are
+  /// double-width (slide + notes), but a page can be a plain single-width slide with no
+  /// notes; such pages are shown whole rather than cropped to a half.
+  fn page_is_split(&self, page: usize) -> bool {
+    page_is_split_for(self.notes, self.page_size(page).aspect())
+  }
+
   /// The slide sub-rectangle of a page (the part shown to the audience).
-  pub fn slide_region(&self) -> Region {
+  pub fn slide_region(&self, page: usize) -> Region {
     match self.notes {
-      NotesLayout::None => Region::FULL,
-      NotesLayout::Split(side) => slide_side(side),
+      NotesLayout::Split(side) if self.page_is_split(page) => slide_side(side),
+      _ => Region::FULL,
     }
   }
 
-  /// The notes sub-rectangle, if any.
-  pub fn notes_region(&self) -> Option<Region> {
+  /// The notes sub-rectangle of a page, if that page has notes.
+  pub fn notes_region(&self, page: usize) -> Option<Region> {
     match self.notes {
-      NotesLayout::None => None,
-      NotesLayout::Split(side) => Some(notes_side(side)),
+      NotesLayout::Split(side) if self.page_is_split(page) => Some(notes_side(side)),
+      _ => None,
     }
   }
 
   /// Aspect (w/h) of the slide portion of a page.
   pub fn slide_aspect(&self, page: usize) -> f32 {
-    region_aspect(self.page_size(page).aspect(), self.slide_region())
+    region_aspect(self.page_size(page).aspect(), self.slide_region(page))
   }
 
-  /// Aspect (w/h) of the notes portion of a page, if there are notes.
+  /// Aspect (w/h) of the notes portion of a page, if that page has notes.
   pub fn notes_aspect(&self, page: usize) -> Option<f32> {
-    self.notes_region().map(|r| region_aspect(self.page_size(page).aspect(), r))
+    self.notes_region(page).map(|r| region_aspect(self.page_size(page).aspect(), r))
   }
 
   /// Render a full page at the given pixel size.
@@ -111,12 +123,12 @@ impl Document {
 
   /// Render just the slide portion of a page (the audience view).
   pub fn render_slide(&self, page: usize, target_px: [u32; 2]) -> Result<RgbaImage> {
-    self.render_region(page, self.slide_region(), target_px)
+    self.render_region(page, self.slide_region(page), target_px)
   }
 
-  /// Render just the notes portion of a page, if any.
+  /// Render just the notes portion of a page, if that page has notes.
   pub fn render_notes(&self, page: usize, target_px: [u32; 2]) -> Result<Option<RgbaImage>> {
-    match self.notes_region() {
+    match self.notes_region(page) {
       Some(region) => Ok(Some(self.render_region(page, region, target_px)?)),
       None => Ok(None),
     }
@@ -209,20 +221,47 @@ fn notes_side(notes: NotesSide) -> Region {
   }
 }
 
-/// Detect split-notes pages by aspect ratio.
-///
-/// A normal slide is ~4:3 (1.33) or 16:9 (1.78). Beamer/Typst "notes on second
-/// screen=right" doubles the width, giving ~2.67 or ~3.56. If the first page is
-/// roughly twice as wide as a plausible slide, treat it as right-side split notes.
-fn detect_notes_layout(r: &impl PageRenderer) -> NotesLayout {
-  if r.page_count() == 0 {
-    return NotesLayout::None;
+/// A page whose aspect is at least this wide is a doubled (slide + notes) page.
+/// The widest normal slide is 16:9 ≈ 1.78, so ~2.4 cleanly separates the two.
+const SPLIT_ASPECT: f32 = 2.4;
+
+/// Whether a page with the given aspect carries a notes split, for the deck's notes style.
+fn page_is_split_for(notes: NotesLayout, aspect: f32) -> bool {
+  match notes {
+    NotesLayout::None => false,
+    NotesLayout::Split(NotesSide::Right | NotesSide::Left) => aspect >= SPLIT_ASPECT,
+    NotesLayout::Split(NotesSide::Top | NotesSide::Bottom) => aspect <= 1.0 / SPLIT_ASPECT,
   }
-  let aspect = r.page_size(0).aspect();
-  // Widest normal slide is 16:9 ≈ 1.78; anything past ~2.4 is a doubled page.
-  if aspect >= 2.4 {
+}
+
+/// Detect whether a deck uses Beamer/Typst "notes on second screen=right" split pages.
+///
+/// The deck is treated as a notes deck if *any* page is roughly double-width — decks can
+/// mix double-width (slide + notes) pages with plain single-width slides, so a single
+/// full-width page in the middle must not switch the whole document out of notes mode.
+/// The per-page split is then decided individually (see `page_is_split`).
+fn detect_notes_layout(r: &impl PageRenderer) -> NotesLayout {
+  let uses_notes = (0..r.page_count()).any(|p| r.page_size(p).aspect() >= SPLIT_ASPECT);
+  if uses_notes {
     NotesLayout::Split(NotesSide::Right)
   } else {
     NotesLayout::None
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn split_is_per_page() {
+    let notes = NotesLayout::Split(NotesSide::Right);
+    // A double-width page (slide + notes) is split; a plain 16:9 or 4:3 page is not,
+    // so a single-width slide in the middle of a notes deck is shown whole.
+    assert!(page_is_split_for(notes, 3.56)); // 2× 16:9
+    assert!(page_is_split_for(notes, 2.66)); // 2× 4:3
+    assert!(!page_is_split_for(notes, 1.78)); // plain 16:9
+    assert!(!page_is_split_for(notes, 1.33)); // plain 4:3
+    assert!(!page_is_split_for(NotesLayout::None, 3.56));
   }
 }
