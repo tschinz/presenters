@@ -94,6 +94,7 @@ pub struct PresenterApp {
   /// (so OS fullscreen targets the monitor we just moved it to).
   audience_apply_fullscreen: bool,
   show_shortcuts: bool,
+  show_about: bool,
   /// Pointer vs. drawing (toggle with D).
   mode: InputMode,
   /// Laser-pointer position, normalized (0..1) within the slide, while the mouse
@@ -107,6 +108,8 @@ pub struct PresenterApp {
   scroll_accum: f32,
   /// Lazily-loaded faint logo shown on the start screen.
   logo: Option<egui::TextureHandle>,
+  /// Lazily-loaded full-color logo for the About window.
+  about_logo: Option<egui::TextureHandle>,
   /// Persistence bookkeeping.
   dirty: bool,
   last_save: Instant,
@@ -132,12 +135,14 @@ impl PresenterApp {
       audience_needs_place: false,
       audience_apply_fullscreen: false,
       show_shortcuts: false,
+      show_about: false,
       mode: InputMode::Pointer,
       pointer_norm: None,
       strokes: HashMap::new(),
       drawing: false,
       scroll_accum: 0.0,
       logo: None,
+      about_logo: None,
       dirty: false,
       last_save: Instant::now(),
     };
@@ -464,12 +469,17 @@ impl PresenterApp {
           }
         }
 
-        if let Some(doc) = self.document.as_ref() {
-          let name = doc.path().file_name().unwrap_or_default().to_string_lossy().into_owned();
-          ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // ── Far right: About + filename ──
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+          if ui.button(small("ⓘ About")).on_hover_text("About this application").clicked() {
+            self.show_about = !self.show_about;
+          }
+          if let Some(doc) = self.document.as_ref() {
+            let name = doc.path().file_name().unwrap_or_default().to_string_lossy().into_owned();
+            ui.separator();
             ui.label(small(&format!("{} · {} pages", name, doc.page_count())));
-          });
-        }
+          }
+        });
       });
     });
   }
@@ -549,6 +559,74 @@ impl PresenterApp {
         ctx.load_texture("start-logo", color, egui::TextureOptions::LINEAR)
       })
       .clone()
+  }
+
+  /// Lazily load the full-color logo used in the About window.
+  fn about_logo_texture(&mut self, ctx: &egui::Context) -> egui::TextureHandle {
+    self
+      .about_logo
+      .get_or_insert_with(|| {
+        let bytes = include_bytes!("../img/logo.png");
+        let color = match image::load_from_memory(bytes) {
+          Ok(img) => {
+            let rgba = img.into_rgba8();
+            let (w, h) = rgba.dimensions();
+            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba.as_raw())
+          }
+          Err(_) => egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT),
+        };
+        ctx.load_texture("about-logo", color, egui::TextureOptions::LINEAR)
+      })
+      .clone()
+  }
+
+  /// The About window: app info, logo, and the generated third-party license list.
+  fn about_window(&mut self, ctx: &egui::Context) {
+    if !self.show_about {
+      return;
+    }
+    const THIRDPARTY: &str = include_str!("../assets/thirdparty.md");
+    let logo = self.about_logo_texture(ctx);
+    let mut open = self.show_about;
+    egui::Window::new("About presenters")
+      .open(&mut open)
+      .collapsible(false)
+      .resizable(true)
+      .default_size([560.0, 520.0])
+      .show(ctx, |ui| {
+        ui.vertical_centered(|ui| {
+          let [lw, lh] = logo.size();
+          let aspect = lw as f32 / lh.max(1) as f32;
+          let w = 150.0_f32;
+          ui.add(egui::Image::new(egui::load::SizedTexture::new(logo.id(), egui::vec2(w, w / aspect))));
+          ui.heading("presenters");
+          ui.label(env!("CARGO_PKG_DESCRIPTION"));
+          ui.add_space(4.0);
+          ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+          ui.label(format!("© 2026 {}", env!("CARGO_PKG_AUTHORS")));
+          ui.label(format!("License: {}", env!("CARGO_PKG_LICENSE")));
+          ui.hyperlink(env!("CARGO_PKG_REPOSITORY"));
+        });
+        ui.add_space(6.0);
+        ui.label("Renders PDFs with PDFium (BSD-3-Clause), bundled with the application.");
+        ui.separator();
+
+        egui::CollapsingHeader::new("Third-party libraries").default_open(false).show(ui, |ui| {
+          // Render only the visible lines: laying out the whole (very long) text as one
+          // galley overflows the font atlas and panics epaint.
+          let lines: Vec<&str> = THIRDPARTY.lines().collect();
+          let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+          egui::ScrollArea::vertical()
+            .max_height(280.0)
+            .auto_shrink([false, false])
+            .show_rows(ui, row_height, lines.len(), |ui, range| {
+              for line in &lines[range] {
+                ui.monospace(*line);
+              }
+            });
+        });
+      });
+    self.show_about = open;
   }
 
   /// The screen shown when no document is open: a faint logo watermark plus a
@@ -655,7 +733,7 @@ impl PresenterApp {
     } = self;
     let doc = document.as_ref();
     let screen = ctx.screen_rect();
-    let has_notes = doc.map(|d| d.notes_region().is_some()).unwrap_or(false);
+    let has_notes = doc.map(|d| d.has_notes()).unwrap_or(false);
     // Input for the current-slide pane (pointer/drawing). Consumed once by the Current pane.
     let page = session.current();
     let mut input = Some(SlideInput {
@@ -782,6 +860,7 @@ impl eframe::App for PresenterApp {
     self.header(ctx);
     self.footer(ctx);
     self.shortcuts_window(ctx);
+    self.about_window(ctx);
 
     if self.document.is_none() {
       self.start_screen(ctx);

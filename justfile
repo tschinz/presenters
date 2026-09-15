@@ -124,6 +124,7 @@ install:
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     cargo install cargo-sbom
     cargo install cargo-bundle
+    cargo install cargo-about --features cli
     just setup-pdfium
 
 # install the release version (default is the latest)
@@ -207,6 +208,12 @@ rustfmt:
 # Check formatting without modifying files (CI-style)
 rustfmt-check:
     cargo fmt --all --check
+
+# Regenerate the third-party license list shown on the About page (needs cargo-about).
+# Install the tool with: cargo install cargo-about --features cli
+thirdparty:
+    cargo about generate -c about/about.toml about/about.hbs -o assets/thirdparty.md
+    @echo "✓ Wrote assets/thirdparty.md"
 
 ##################################################
 # Documentation

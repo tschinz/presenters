@@ -127,9 +127,19 @@ just build      # release build into bin/
 
 Tests are headless and need the PDFium library present (run `just setup-pdfium` first).
 
+The **About** window (button at the far right of the header) shows the app info and the
+third-party libraries with their licenses. That list is generated from the dependency tree
+with [cargo-about](https://github.com/EmbarkStudios/cargo-about) and embedded into the app;
+regenerate it after changing dependencies:
+
+```bash
+just thirdparty   # writes assets/thirdparty.md (needs: cargo install cargo-about --features cli)
+```
+
 ## License
 
 Licensed under the MIT license ([LICENSE](LICENSE)).
 
-This project links against and bundles the PDFium library (BSD-3-Clause); see
-[THIRD_PARTY.md](THIRD_PARTY.md).
+PDF rendering uses Google's PDFium (BSD-3-Clause), bundled with the application. The full
+license texts for PDFium and every Rust dependency are shown in the app's **About** window
+and generated into `assets/thirdparty.md` (`just thirdparty`).
