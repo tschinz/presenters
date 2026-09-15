@@ -255,12 +255,20 @@ impl PresenterApp {
     if self.document.is_some() {
       self.presenting = true;
       self.audience_needs_place = true;
+      // The talk timer runs while presenting; starting/resuming here, pausing on quit.
+      self.session.timer_mut().start();
       // If there's a second screen, place the audience window there and fullscreen
       // it; on a single screen, open it windowed so the presenter stays visible.
       let has_external = crate::screen::external_origin().is_some();
       self.audience_apply_fullscreen = has_external;
       self.audience_fullscreen = has_external;
     }
+  }
+
+  /// Quit the presentation (close the audience window) and pause the talk timer.
+  fn stop_presentation(&mut self) {
+    self.presenting = false;
+    self.session.timer_mut().pause();
   }
 
   /// Close the current document and return to the start screen.
@@ -311,9 +319,6 @@ impl PresenterApp {
       if i.key_pressed(Key::End) {
         self.session.last();
       }
-      if i.key_pressed(Key::T) {
-        self.session.timer_mut().toggle();
-      }
       if i.key_pressed(Key::R) {
         self.session.timer_mut().reset();
       }
@@ -330,7 +335,7 @@ impl PresenterApp {
         present = true;
       }
       if i.key_pressed(Key::Escape) {
-        self.presenting = false;
+        self.stop_presentation();
       }
       if i.key_pressed(Key::B) {
         self.blanked = !self.blanked;
@@ -410,7 +415,7 @@ impl PresenterApp {
           }
           if self.presenting {
             if ui.button(small("⏹ Quit (Esc)")).clicked() {
-              self.presenting = false;
+              self.stop_presentation();
             }
           } else if ui.button(small("▶ Present (F5)")).clicked() {
             self.start_presentation();
@@ -419,10 +424,7 @@ impl PresenterApp {
           if ui.button(small(blank_label)).clicked() {
             self.blanked = !self.blanked;
           }
-          if ui.button(small("⏯ (T)")).clicked() {
-            self.session.timer_mut().toggle();
-          }
-          if ui.button(small("↺ (R)")).clicked() {
+          if ui.button(small("↺ Reset time (R)")).clicked() {
             self.session.timer_mut().reset();
           }
         }
@@ -478,7 +480,7 @@ impl PresenterApp {
     }
     let fs = self.footer_font;
     let slide = format!("Slide {} / {}", self.session.current() + 1, self.session.page_count());
-    let clock = chrono::Local::now().format("%H:%M").to_string();
+    let clock = chrono::Local::now().format("%H:%M:%S").to_string();
     let t = self.session.timer();
     let elapsed = format!("⏱ {}{}", format_elapsed(t.elapsed()), if t.is_running() { "" } else { "  (paused)" });
 
@@ -511,8 +513,7 @@ impl PresenterApp {
           ("Esc", "Quit presentation"),
           ("B", "Blank the audience screen (black)"),
           ("W", "Close file, back to start screen"),
-          ("T", "Timer pause / resume"),
-          ("R", "Reset timer"),
+          ("R", "Reset the talk timer"),
           ("L", "Flip layout (H/V with no notes; 4 presets with notes)"),
           ("+ / −", "Footer font larger / smaller"),
           ("O", "Open a PDF"),
@@ -909,7 +910,7 @@ impl PresenterApp {
       ctx.send_viewport_cmd_to(vid, egui::ViewportCommand::Fullscreen(self.audience_fullscreen));
     }
     if quit {
-      self.presenting = false;
+      self.stop_presentation();
     }
   }
 }

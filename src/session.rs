@@ -98,9 +98,17 @@ impl Timer {
     }
   }
 
+  /// Start or resume (keeps accumulated time). No-op if already running.
   pub fn start(&mut self) {
     if self.started.is_none() {
       self.started = Some(Instant::now());
+    }
+  }
+
+  /// Pause, banking elapsed time. No-op if already paused.
+  pub fn pause(&mut self) {
+    if let Some(t) = self.started.take() {
+      self.accumulated += t.elapsed();
     }
   }
 

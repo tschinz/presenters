@@ -26,7 +26,7 @@ It stays instant even on large decks (300+ pages) thanks to lazy rendering, a te
 - **Works with or without notes.** Auto-detects Beamer/Typst "notes on second screen" decks (a double-width page whose right half is the notes) and splits the slide from the notes. Plain decks just work too.
 - **Two windows, second-screen aware.** Start the audience window with `F5`, quit it with `Esc` — the presenter window keeps running. If a **second screen** is attached, the audience window is placed on it and fullscreened automatically (presenter stays on the primary); on a single screen it opens windowed. Double-click the audience window to toggle fullscreen.
 - **Adaptive, resizable layout.** With notes, cycle 4 arrangements of current / next / notes; without notes, toggle a horizontal or vertical current + next split. Drag any divider to resize; sizes are remembered.
-- **Talk timer + clock.** The footer shows the slide number, the current wall-clock time, and a pausable/resettable presentation stopwatch — large and centered.
+- **Talk timer + clock.** The footer shows the slide number, the current wall-clock time (with seconds), and a talk stopwatch that runs while you present, pauses when you quit the presentation, and resets with `R` — large and centered.
 - **Adjustable footer size.** Make the slide counter and timer as big as you want.
 - **Recent files + resume.** Launch with no file to pick from a recent-files list; reopening a deck resumes at the page you left off.
 - **Remembers everything.** Window position, panel sizes, footer font, chosen layout, and recent files persist between sessions.
@@ -74,8 +74,7 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 | `Esc` | Quit presentation |
 | `B` | Blank the audience screen (black) |
 | `W` | Close the file, back to the start screen |
-| `T` | Timer pause / resume |
-| `R` | Reset timer |
+| `R` | Reset the talk timer |
 | `L` | Flip layout (H/V with no notes; 4 presets with notes) |
 | `+` / `−` | Footer font larger / smaller |
 | `O` | Open a PDF |
