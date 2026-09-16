@@ -8,7 +8,10 @@ use rust_presenters::app::PresenterApp;
 
 fn main() -> eframe::Result<()> {
   tracing_subscriber::fmt()
-    .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+    .with_env_filter(
+      // Quiet wgpu's very chatty per-frame INFO logging by default.
+      tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,wgpu=warn,wgpu_core=warn,wgpu_hal=warn,naga=warn".into()),
+    )
     .init();
 
   // Optional PDF path as the first CLI argument.
@@ -36,8 +39,18 @@ fn main() -> eframe::Result<()> {
     viewport = viewport.with_position(pos);
   }
 
+  // Use the wgpu backend (Metal / Vulkan) by default. The glow (OpenGL) backend has a
+  // font-atlas panic ("Partial texture update is outside the bounds") when the atlas grows
+  // while multiple viewports (presenter + audience) are open, which aborts the app mid-talk.
+  // Escape hatch: set RP_RENDERER=glow to fall back if wgpu misbehaves on some machine.
+  let renderer = match std::env::var("RP_RENDERER").as_deref() {
+    Ok("glow") => eframe::Renderer::Glow,
+    _ => eframe::Renderer::Wgpu,
+  };
+
   let options = eframe::NativeOptions {
     viewport,
+    renderer,
     ..Default::default()
   };
 
