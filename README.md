@@ -46,6 +46,15 @@ just setup-pdfium
 
 This downloads the matching build from [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) for your OS/arch into `third_party/pdfium/` (git-ignored).
 
+The app finds the library next to the binary, under an installed prefix (`.deb`/`.app` bundles
+include it), in `third_party/pdfium/lib/` relative to the working directory, or via the
+`PDFIUM_LIB_DIR` environment variable. On Linux, if you run an installed binary outside the
+repo, install the library system-wide instead:
+
+```bash
+sudo install -m0644 third_party/pdfium/lib/libpdfium.so /usr/local/lib/ && sudo ldconfig
+```
+
 ## Build & run
 
 ```bash

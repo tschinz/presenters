@@ -73,11 +73,22 @@ fn candidate_lib_dirs() -> Vec<PathBuf> {
       dirs.push(resources.join("lib"));
       dirs.push(resources.clone());
 
-      // Linux install prefix: <prefix>/bin/<bin> -> <prefix>/lib[/<name>]
-      dirs.push(parent.join("lib/rust-presenters"));
-      dirs.push(parent.join("lib"));
+      // Linux install prefix: <prefix>/bin/<bin> -> <prefix>/{lib,share}[/<pkg>][/...].
+      // cargo-bundle's .deb preserves the resource's relative path, so the library lands
+      // under a per-package dir (the package may be named after the crate or the bundle).
+      for base in ["lib", "share"] {
+        for pkg in ["rust-presenters", "presenters"] {
+          dirs.push(parent.join(base).join(pkg).join("third_party/pdfium/lib"));
+          dirs.push(parent.join(base).join(pkg));
+        }
+        dirs.push(parent.join(base));
+      }
     }
   }
+
+  // Common system locations (Linux/BSD).
+  dirs.push(PathBuf::from("/usr/local/lib"));
+  dirs.push(PathBuf::from("/usr/lib"));
 
   // Dev layout: cargo run from the repo root (bin/ is where the Windows DLL lands).
   dirs.push(PathBuf::from("third_party/pdfium/lib"));
