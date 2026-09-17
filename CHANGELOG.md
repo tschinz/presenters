@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2026-09-17
+
+### 🚀 Features
+
+- Zoom and pan feature added ([70afba9](https://github.com/tschinz/presenters/commit/70afba9f8f2ade6ba62f542180a94a96456db29d) - zas)
+
+### 🐛 Bug Fixes
+
+- Pdfium seach locations ([374a103](https://github.com/tschinz/presenters/commit/374a103fe309c0e86431083a58a083408a8034da) - zas)
+- Crash because of wpgu ([d8d145c](https://github.com/tschinz/presenters/commit/d8d145ce91c251ec34ed37a241bb0477c45a4bb9) - zas)
+- Layoutz window bug ([f5ac560](https://github.com/tschinz/presenters/commit/f5ac56089e901cfe209b5cab2007d575e8d9e58e) - zas)
+
+
+**Full Changelog**: [v0.1.0...0.1.1](https://github.com/tschinz/presenters/compare/v0.1.0...0.1.1)
+
 ## [0.1.0] - 2026-09-15
 
 ### 🚀 Features
