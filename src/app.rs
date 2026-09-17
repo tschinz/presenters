@@ -1288,6 +1288,12 @@ fn draw_slide_region(
   res_scale: f32,
 ) -> Option<egui::Rect> {
   let full = ui.available_rect_before_wrap();
+  // Claim the whole available area up front. A resizable panel stores the height (or width)
+  // of its content's actual rect; if we only claimed the letterboxed image below, a vertical
+  // split's top pane would store the image bottom instead of the panel bottom and collapse to
+  // its minimum every frame ("jumps back to the top"). Allocating `full` pins the stored size
+  // to what the user dragged. Sense::hover doesn't eat clicks meant for the slide interaction.
+  ui.allocate_rect(full, egui::Sense::hover());
   let ppp = ctx.pixels_per_point();
 
   let (mut w, mut h) = (full.width(), full.width() / aspect);
@@ -1305,18 +1311,28 @@ fn draw_slide_region(
   }
 
   if let Some(tex) = cache.get_or_render(ctx, doc, page, region, [pw, ph]) {
-    ui.put(img_rect, egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(w, h))).uv(uv));
+    egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(w, h)))
+      .uv(uv)
+      .paint_at(ui, img_rect);
     Some(img_rect)
   } else {
-    ui.put(img_rect, egui::Spinner::new());
+    egui::Spinner::new().paint_at(ui, img_rect);
     None
   }
 }
 
-/// Bounded texture cache keyed by (page, region, pixel width). Evicts oldest entries.
+type TexKey = (usize, Region, u32);
+
+/// Bounded **LRU** texture cache keyed by (page, region, pixel width).
+///
+/// LRU matters for correctness, not just efficiency: eviction drops a `TextureHandle`,
+/// which frees the GPU texture. If a texture still referenced by the current frame's paint
+/// commands were freed, wgpu aborts ("texture has been destroyed"). By moving a key to the
+/// back of `order` on every access, eviction only ever removes the least-recently-used
+/// texture — never one drawn this frame (a frame touches far fewer textures than `capacity`).
 struct TextureCache {
-  map: HashMap<(usize, Region, u32), egui::TextureHandle>,
-  order: VecDeque<(usize, Region, u32)>,
+  map: HashMap<TexKey, egui::TextureHandle>,
+  order: VecDeque<TexKey>,
   capacity: usize,
 }
 
@@ -1334,10 +1350,19 @@ impl TextureCache {
     self.order.clear();
   }
 
+  /// Mark `key` as most-recently-used.
+  fn touch(&mut self, key: TexKey) {
+    if let Some(pos) = self.order.iter().position(|k| *k == key) {
+      self.order.remove(pos);
+    }
+    self.order.push_back(key);
+  }
+
   fn get_or_render(&mut self, ctx: &egui::Context, doc: &Document, page: usize, region: Region, target_px: [u32; 2]) -> Option<egui::TextureHandle> {
     let key = (page, region, target_px[0]);
-    if let Some(tex) = self.map.get(&key) {
-      return Some(tex.clone());
+    if let Some(tex) = self.map.get(&key).cloned() {
+      self.touch(key);
+      return Some(tex);
     }
 
     let img = match region {
