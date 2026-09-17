@@ -72,9 +72,9 @@ cargo run --release -- examples/04-aprog-ptr-en.pdf
 
 Launch with no argument and press **O** (or click **Open**) to pick a file.
 
-## Keyboard shortcuts
+## Keyboard & mouse shortcuts
 
-| Key | Action |
+| Input | Action |
 | --- | --- |
 | `→` / `Space` / `PageDown` / scroll down | Next slide |
 | `←` / `PageUp` / scroll up | Previous slide |
@@ -89,7 +89,11 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 | `O` | Open a PDF |
 | `P` | Toggle laser pointer / drawing |
 | `D` | Delete all drawings |
+| Hold mouse on current slide | Laser pointer / draw (shown on the audience screen) |
+| `Ctrl` (or `⌘`) + scroll | Zoom the current slide at the cursor |
+| `Ctrl` (or `⌘`) + drag | Pan the zoomed slide |
 | Double-click (audience) | Toggle fullscreen |
+| Drag & drop a PDF | Open it |
 
 **Laser pointer & drawing:** hold the mouse button over the **current slide** in the presenter
 window and a semi-transparent dot appears at that spot on the audience screen, following your
@@ -98,6 +102,10 @@ holding and dragging draws freehand lines on the slide instead; **`D`** deletes 
 The **Pointer size −/+** buttons in the header set both the dot size and the line thickness.
 Drawings are kept per slide while you navigate, and cleared when you close the file (never
 saved to disk).
+
+**Zoom:** hold **Ctrl** (or ⌘) and **scroll** to zoom the current slide in/out at the cursor,
+and **Ctrl + drag** to pan around — mirrored on the audience screen so you can show a detail
+to the room. Zoom resets when you change slides.
 
 You can also **drag & drop a PDF onto the window** to open it. The **Shortcuts** button in
 the header shows the key list in-app.
