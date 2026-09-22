@@ -89,23 +89,29 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 | `O` | Open a PDF |
 | `P` | Toggle laser pointer / drawing |
 | `D` | Delete all drawings |
-| Hold mouse on current slide | Laser pointer / draw (shown on the audience screen) |
-| `Ctrl` (or `⌘`) + scroll | Zoom the current slide at the cursor |
-| `Ctrl` (or `⌘`) + drag | Pan the zoomed slide |
+| Hold mouse on current slide (either window) | Laser pointer / draw (shown on the audience screen) |
+| `Ctrl` (or `⌘`) + scroll (either window) | Zoom the current slide at the cursor |
+| `Ctrl` (or `⌘`) + drag (either window) | Pan the zoomed slide |
 | Double-click (audience) | Toggle fullscreen |
 | Drag & drop a PDF | Open it |
 
-**Laser pointer & drawing:** hold the mouse button over the **current slide** in the presenter
-window and a semi-transparent dot appears at that spot on the audience screen, following your
+All mouse features work on **either window** — the presenter window's current slide *and* the
+audience Presentation window — and both drive the same shared state, so pointer, drawings, and
+zoom always mirror between them. Use whichever window your cursor is on (handy when you stand
+by the projected screen).
+
+**Laser pointer & drawing:** hold the mouse button over the **current slide** (in either
+window) and a semi-transparent dot appears at that spot on the audience screen, following your
 cursor; release to hide. Press **`P`** (or the header button) to toggle **drawing** mode, where
 holding and dragging draws freehand lines on the slide instead; **`D`** deletes all drawings.
 The **Pointer size −/+** buttons in the header set both the dot size and the line thickness.
 Drawings are kept per slide while you navigate, and cleared when you close the file (never
 saved to disk).
 
-**Zoom:** hold **Ctrl** (or ⌘) and **scroll** to zoom the current slide in/out at the cursor,
-and **Ctrl + drag** to pan around — mirrored on the audience screen so you can show a detail
-to the room. Zoom resets when you change slides.
+**Scroll & zoom:** the scroll wheel navigates slides in either window; hold **Ctrl** (or ⌘) and
+**scroll** to zoom the current slide in/out at the cursor, and **Ctrl + drag** to pan around —
+mirrored on both screens so you can show a detail to the room. Zoom resets when you change
+slides.
 
 You can also **drag & drop a PDF onto the window** to open it. The **Shortcuts** button in
 the header shows the key list in-app.

@@ -285,15 +285,16 @@ impl PresenterApp {
   }
 
   /// Multiply the zoom by `factor`, keeping the slide point under `cursor` fixed
-  /// (zoom-to-cursor). Falls back to zooming about the centre.
-  fn apply_zoom(&mut self, factor: f32, cursor: Option<egui::Pos2>) {
+  /// (zoom-to-cursor). `rect` is the on-screen rect of the slide the cursor is over (the
+  /// presenter's or the audience's), used as the anchor. Falls back to zooming about the centre.
+  fn apply_zoom(&mut self, factor: f32, cursor: Option<egui::Pos2>, rect: Option<egui::Rect>) {
     let new_z = (self.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
     if (new_z - self.zoom).abs() < f32::EPSILON {
       return;
     }
     let uv = self.zoom_uv();
     // Anchor: the slide point that should stay under the same screen spot.
-    let (anchor, f) = match (self.current_slide_rect, cursor) {
+    let (anchor, f) = match (rect, cursor) {
       (Some(rect), Some(c)) if rect.contains(c) => {
         let f = egui::vec2((c.x - rect.left()) / rect.width().max(1.0), (c.y - rect.top()) / rect.height().max(1.0));
         (egui::pos2(uv.min.x + f.x * uv.width(), uv.min.y + f.y * uv.height()), f)
@@ -410,60 +411,12 @@ impl PresenterApp {
       if i.key_pressed(Key::D) {
         self.clear_drawings();
       }
-      // Scroll wheel: plain scroll navigates slides (down = next, up = previous). With
-      // Ctrl (or Cmd) held, it zooms the current slide at the cursor instead.
-      // A real wheel reports discrete Line notches — one slide each, by sign. Trackpad
-      // pixel scrolling (Point) accumulates against a threshold.
-      if self.document.is_some() {
-        const POINT_STEP: f32 = 40.0;
-        let zoom_mod = i.modifiers.command || i.modifiers.ctrl;
-        let cursor = i.pointer.hover_pos();
-        for event in &i.events {
-          if let egui::Event::MouseWheel { unit, delta, .. } = event {
-            if zoom_mod {
-              let factor = match unit {
-                egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
-                  if delta.y > 0.0 {
-                    1.25
-                  } else if delta.y < 0.0 {
-                    0.8
-                  } else {
-                    1.0
-                  }
-                }
-                egui::MouseWheelUnit::Point => (delta.y * 0.004).exp(),
-              };
-              self.apply_zoom(factor, cursor);
-              continue;
-            }
-            match unit {
-              egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
-                if delta.y < 0.0 {
-                  self.session.next();
-                } else if delta.y > 0.0 {
-                  self.session.prev();
-                }
-              }
-              egui::MouseWheelUnit::Point => {
-                self.scroll_accum += delta.y;
-                while self.scroll_accum <= -POINT_STEP {
-                  self.session.next();
-                  self.scroll_accum += POINT_STEP;
-                }
-                while self.scroll_accum >= POINT_STEP {
-                  self.session.prev();
-                  self.scroll_accum -= POINT_STEP;
-                }
-              }
-            }
-          }
-        }
-      } else {
-        self.scroll_accum = 0.0;
-      }
       close = i.key_pressed(Key::W);
       open = i.key_pressed(Key::O);
     });
+    // Mouse-wheel navigation / zoom on the presenter window, anchored at its current slide.
+    let anchor = self.current_slide_rect;
+    self.handle_wheel(ctx, anchor);
     if font_delta != 0.0 {
       self.adjust_font(font_delta);
     }
@@ -476,6 +429,65 @@ impl PresenterApp {
     if open {
       self.pick_file();
     }
+  }
+
+  /// Mouse-wheel navigation and Ctrl/Cmd+scroll zoom for one window's input context.
+  /// `anchor` is the on-screen rect of that window's current slide (the zoom-to-cursor
+  /// anchor). Shared by the presenter and the audience windows so both react to the wheel.
+  ///
+  /// Plain scroll navigates slides (down = next, up = previous). A real wheel reports
+  /// discrete Line notches — one slide each, by sign. Trackpad pixel scrolling (Point)
+  /// accumulates against a threshold.
+  fn handle_wheel(&mut self, ctx: &egui::Context, anchor: Option<egui::Rect>) {
+    if self.document.is_none() {
+      self.scroll_accum = 0.0;
+      return;
+    }
+    const POINT_STEP: f32 = 40.0;
+    ctx.input(|i| {
+      let zoom_mod = i.modifiers.command || i.modifiers.ctrl;
+      let cursor = i.pointer.hover_pos();
+      for event in &i.events {
+        if let egui::Event::MouseWheel { unit, delta, .. } = event {
+          if zoom_mod {
+            let factor = match unit {
+              egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+                if delta.y > 0.0 {
+                  1.25
+                } else if delta.y < 0.0 {
+                  0.8
+                } else {
+                  1.0
+                }
+              }
+              egui::MouseWheelUnit::Point => (delta.y * 0.004).exp(),
+            };
+            self.apply_zoom(factor, cursor, anchor);
+            continue;
+          }
+          match unit {
+            egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+              if delta.y < 0.0 {
+                self.session.next();
+              } else if delta.y > 0.0 {
+                self.session.prev();
+              }
+            }
+            egui::MouseWheelUnit::Point => {
+              self.scroll_accum += delta.y;
+              while self.scroll_accum <= -POINT_STEP {
+                self.session.next();
+                self.scroll_accum += POINT_STEP;
+              }
+              while self.scroll_accum >= POINT_STEP {
+                self.session.prev();
+                self.scroll_accum -= POINT_STEP;
+              }
+            }
+          }
+        }
+      }
+    });
   }
 
   fn header(&mut self, ctx: &egui::Context) {
@@ -990,6 +1002,40 @@ impl eframe::App for PresenterApp {
 }
 
 impl PresenterApp {
+  /// Draw the current slide on the audience window (unless blanked) and service the same
+  /// mouse interaction as the presenter's current-slide pane — laser pointer, freehand
+  /// drawing, and Ctrl/Cmd+drag panning — all against the shared state, so annotations and
+  /// zoom mirror between the two windows. Returns the on-screen slide rect (for wheel
+  /// zoom-to-cursor) and whether the slide was double-clicked (for fullscreen toggle).
+  fn audience_slide(&mut self, ui: &mut egui::Ui, vctx: &egui::Context) -> (Option<egui::Rect>, bool) {
+    if self.blanked {
+      return (None, false);
+    }
+    let Some(doc) = self.document.as_ref() else {
+      return (None, false);
+    };
+    let page = self.session.current();
+    let aspect = doc.slide_aspect(page);
+    let uv = self.zoom_uv();
+    let res = self.zoom.clamp(1.0, MAX_ZOOM_RENDER);
+    let Some(rect) = draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect, uv, res) else {
+      return (None, false);
+    };
+    let mut rect_sink = None;
+    let mut inp = SlideInput {
+      mode: self.mode,
+      size: self.pointer_size,
+      pointer: &mut self.pointer_norm,
+      strokes: self.strokes.entry(page).or_default(),
+      drawing: &mut self.drawing,
+      zoom: self.zoom,
+      zoom_offset: &mut self.zoom_offset,
+      rect_out: &mut rect_sink,
+    };
+    let resp = process_slide_input(ui, rect, uv, &mut inp);
+    (Some(rect), resp.double_clicked())
+  }
+
   /// The audience window: only the slide, on black. Double-click toggles fullscreen;
   /// Esc or the close button quits. Geometry is captured for persistence.
   fn show_audience(&mut self, ctx: &egui::Context) {
@@ -1016,31 +1062,20 @@ impl PresenterApp {
       egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(egui::Color32::BLACK))
         .show(vctx, |ui| {
+          // Double-click the black margins to toggle fullscreen (the slide area is handled
+          // by `audience_slide`, whose interaction sits on top of this one).
           let resp = ui.interact(ui.max_rect(), ui.id().with("audience-surface"), egui::Sense::click());
           if resp.double_clicked() {
             toggle_fullscreen = true;
           }
-          // When blanked, leave the black frame empty.
-          if !self.blanked
-            && let Some(doc) = self.document.as_ref()
-          {
-            let page = self.session.current();
-            let aspect = doc.slide_aspect(page);
-            let uv = self.zoom_uv();
-            let res = self.zoom.clamp(1.0, MAX_ZOOM_RENDER);
-            let rect = draw_slide_region(ui, vctx, &mut self.cache, doc, page, Region::Slide, aspect, uv, res);
-            if let Some(rect) = rect {
-              let painter = ui.painter_at(rect);
-              // Freehand annotations for this page.
-              if let Some(strokes) = self.strokes.get(&page) {
-                draw_strokes(&painter, rect, uv, strokes);
-              }
-              // Laser pointer dot, mirrored from the presenter's current slide.
-              if let Some(n) = self.pointer_norm {
-                draw_pointer_dot(&painter, rect, uv, n, self.pointer_size);
-              }
-            }
+          // Draw the slide (unless blanked) and let the same mouse features as the presenter
+          // window drive it: pointer, drawing, and Ctrl+drag pan.
+          let (slide_rect, slide_double) = self.audience_slide(ui, vctx);
+          if slide_double {
+            toggle_fullscreen = true;
           }
+          // Scroll to navigate and Ctrl/Cmd+scroll to zoom, anchored at this window's slide.
+          self.handle_wheel(vctx, slide_rect);
         });
 
       let (pos, size) = vctx.input(|i| {
@@ -1141,59 +1176,9 @@ fn render_pane(
         None => (full_uv(), 1.0),
       };
       let rect = draw_slide_region(ui, ctx, cache, doc, p, region, a, uv, res);
-      if let (Some(inp), Some(rect)) = (input, rect) {
+      if let (Some(mut inp), Some(rect)) = (input, rect) {
         *inp.rect_out = Some(rect);
-        let ctrl = ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
-        let resp = ui.interact(rect, ui.id().with("slide-input"), egui::Sense::click_and_drag());
-        let held = resp.is_pointer_button_down_on();
-
-        if ctrl {
-          // Ctrl+drag pans (when zoomed); no pointer/drawing meanwhile.
-          *inp.pointer = None;
-          *inp.drawing = false;
-          if resp.dragged() && inp.zoom > 1.0 {
-            let d = resp.drag_delta();
-            let s = 1.0 / inp.zoom;
-            let mut off = *inp.zoom_offset - egui::vec2(d.x / rect.width().max(1.0) * s, d.y / rect.height().max(1.0) * s);
-            clamp_offset(&mut off, s);
-            *inp.zoom_offset = off;
-          }
-        } else {
-          match inp.mode {
-            InputMode::Pointer => {
-              *inp.pointer = None;
-              *inp.drawing = false;
-              if held && let Some(pos) = resp.interact_pointer_pos() {
-                *inp.pointer = Some(screen_to_slide(rect, uv, pos));
-              }
-            }
-            InputMode::Draw => {
-              *inp.pointer = None;
-              if held && let Some(pos) = resp.interact_pointer_pos() {
-                let n = screen_to_slide(rect, uv, pos);
-                if !*inp.drawing {
-                  *inp.drawing = true;
-                  inp.strokes.push(Stroke {
-                    points: vec![n],
-                    width_factor: 0.006 * inp.size,
-                  });
-                } else if let Some(last) = inp.strokes.last_mut()
-                  && last.points.last().is_none_or(|lp| (lp.x - n.x).abs() + (lp.y - n.y).abs() > 0.0015 / inp.zoom)
-                {
-                  last.points.push(n);
-                }
-              } else {
-                *inp.drawing = false;
-              }
-            }
-          }
-        }
-        // Draw the page's strokes, then the pointer dot (if any) on top — clipped to the slide.
-        let painter = ui.painter_at(rect);
-        draw_strokes(&painter, rect, uv, inp.strokes);
-        if let Some(n) = *inp.pointer {
-          draw_pointer_dot(&painter, rect, uv, n, inp.size);
-        }
+        let _ = process_slide_input(ui, rect, uv, &mut inp);
       }
     }
     _ => {
@@ -1207,6 +1192,77 @@ fn render_pane(
       });
     }
   }
+}
+
+/// Mouse interaction for a slide surface shown at `rect` with visible window `uv`:
+/// laser pointer, freehand drawing, and Ctrl/Cmd+drag panning (when zoomed). Then draws
+/// the page's strokes and the pointer dot on top.
+///
+/// Shared by the presenter's current-slide pane and the audience window, both of which
+/// drive the same shared state (`inp.pointer`, `inp.strokes`, `inp.zoom_offset`). To avoid
+/// the two windows fighting over the pointer each frame, a window only *updates* the
+/// pointer/drawing state while the OS pointer is inside that window (or a drag started
+/// there); at most one window holds the pointer at a time. The strokes and dot are always
+/// drawn, so annotations mirror on both.
+fn process_slide_input(ui: &mut egui::Ui, rect: egui::Rect, uv: egui::Rect, inp: &mut SlideInput<'_>) -> egui::Response {
+  let ctrl = ui.input(|i| i.modifiers.command || i.modifiers.ctrl);
+  let resp = ui.interact(rect, ui.id().with("slide-input"), egui::Sense::click_and_drag());
+  let held = resp.is_pointer_button_down_on();
+  // Only this window manages the pointer while it actually has the cursor (or is mid-drag),
+  // so the other window's per-frame pass doesn't clobber it.
+  let engaged = ui.input(|i| i.pointer.hover_pos().is_some()) || resp.dragged();
+
+  if engaged {
+    if ctrl {
+      // Ctrl+drag pans (when zoomed); no pointer/drawing meanwhile.
+      *inp.pointer = None;
+      *inp.drawing = false;
+      if resp.dragged() && inp.zoom > 1.0 {
+        let d = resp.drag_delta();
+        let s = 1.0 / inp.zoom;
+        let mut off = *inp.zoom_offset - egui::vec2(d.x / rect.width().max(1.0) * s, d.y / rect.height().max(1.0) * s);
+        clamp_offset(&mut off, s);
+        *inp.zoom_offset = off;
+      }
+    } else {
+      match inp.mode {
+        InputMode::Pointer => {
+          *inp.pointer = None;
+          *inp.drawing = false;
+          if held && let Some(pos) = resp.interact_pointer_pos() {
+            *inp.pointer = Some(screen_to_slide(rect, uv, pos));
+          }
+        }
+        InputMode::Draw => {
+          *inp.pointer = None;
+          if held && let Some(pos) = resp.interact_pointer_pos() {
+            let n = screen_to_slide(rect, uv, pos);
+            if !*inp.drawing {
+              *inp.drawing = true;
+              inp.strokes.push(Stroke {
+                points: vec![n],
+                width_factor: 0.006 * inp.size,
+              });
+            } else if let Some(last) = inp.strokes.last_mut()
+              && last.points.last().is_none_or(|lp| (lp.x - n.x).abs() + (lp.y - n.y).abs() > 0.0015 / inp.zoom)
+            {
+              last.points.push(n);
+            }
+          } else {
+            *inp.drawing = false;
+          }
+        }
+      }
+    }
+  }
+
+  // Draw the page's strokes, then the pointer dot (if any) on top — clipped to the slide.
+  let painter = ui.painter_at(rect);
+  draw_strokes(&painter, rect, uv, inp.strokes);
+  if let Some(n) = *inp.pointer {
+    draw_pointer_dot(&painter, rect, uv, n, inp.size);
+  }
+  resp
 }
 
 /// The whole-slide UV window (no zoom).
