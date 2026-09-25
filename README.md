@@ -4,7 +4,7 @@
 
 # presenters
 
-**A fast, native dual-screen PDF presenter for Typst & LaTeX slides — inspired by [pympress](https://github.com/Cimbali/pympress).**
+**A fast, native dual-screen PDF presenter for Typst & LaTeX slides - inspired by [pympress](https://github.com/Cimbali/pympress).**
 
 Runs on macOS · Windows · Linux · Built with [egui](https://github.com/emilk/egui) + [PDFium](https://pdfium.googlesource.com/pdfium/)
 
@@ -16,21 +16,36 @@ Runs on macOS · Windows · Linux · Built with [egui](https://github.com/emilk/
 
 Open a PDF exported from **Typst** or **LaTeX/Beamer** and drive a talk with two windows:
 
-- 🖥️ **Presenter window** — the current slide, a next-slide preview, your speaker notes, and a talk timer.
-- 📽️ **Audience window** — just the slide, on black, fullscreen on the projector.
+- 🖥️ **Presenter window** - the current slide, a next-slide preview, your speaker notes, and a talk timer.
+- 📽️ **Audience window** - just the slide, on black, fullscreen on the projector.
 
 It stays instant even on large decks (300+ pages) thanks to lazy rendering, a texture cache, and next-slide prefetch.
+
+## Screenshots
+
+**Start screen** - launch with no file to pick from your recent decks, or just drag & drop a PDF onto the window.
+
+![Start screen with a recent-files list](img/screenshot-startpage.png)
+
+**Presenter window** - the current slide, a next-slide preview, the current slide's speaker notes, and a centered slide counter, wall clock, and talk timer.
+
+![Presenter window: current slide, next-slide preview, notes, and timer](img/screenshot-presenter-view.png)
+
+**Live annotation** - hold the mouse over the current slide to draw freehand (mirrored on the audience screen); press `P` to switch between the laser pointer and drawing, and `D` to clear.
+
+![Freehand annotations drawn on the current slide](img/screenshot-drawing.png)
+
 
 ## Features
 
 - **Works with or without notes.** Auto-detects Beamer/Typst "notes on second screen" decks (a double-width page whose right half is the notes) and splits the slide from the notes. Plain decks just work too.
-- **Two windows, second-screen aware.** Start the audience window with `F5`, quit it with `Esc` — the presenter window keeps running. If a **second screen** is attached, the audience window is placed on it and fullscreened automatically (presenter stays on the primary); on a single screen it opens windowed. Double-click the audience window to toggle fullscreen.
+- **Two windows, second-screen aware.** Start the audience window with `F5`, quit it with `Esc` - the presenter window keeps running. If a **second screen** is attached, the audience window is placed on it and fullscreened automatically (presenter stays on the primary); on a single screen it opens windowed. Double-click the audience window to toggle fullscreen.
 - **Adaptive, resizable layout.** With notes, cycle 4 arrangements of current / next / notes; without notes, toggle a horizontal or vertical current + next split. Drag any divider to resize; sizes are remembered.
-- **Talk timer + clock.** The footer shows the slide number, the current wall-clock time (with seconds), and a talk stopwatch that runs while you present, pauses when you quit the presentation, and resets with `R` — large and centered.
+- **Talk timer + clock.** The footer shows the slide number, the current wall-clock time (with seconds), and a talk stopwatch that runs while you present, pauses when you quit the presentation, and resets with `R` - large and centered.
 - **Adjustable footer size.** Make the slide counter and timer as big as you want.
 - **Recent files + resume.** Launch with no file to pick from a recent-files list; reopening a deck resumes at the page you left off.
 - **Remembers everything.** Window position, panel sizes, footer font, chosen layout, and recent files persist between sessions.
-- **Fast on big decks.** Lazy, cached, prefetched rendering — no waiting on 300-page PDFs.
+- **Fast on big decks.** Lazy, cached, prefetched rendering - no waiting on 300-page PDFs.
 
 Settings live in a single JSON file in a per-OS config directory named `presenter`:
 `~/.config/presenter/state.json` on macOS & Linux (honoring `$XDG_CONFIG_HOME`), and
@@ -61,7 +76,7 @@ sudo install -m0644 third_party/pdfium/lib/libpdfium.so /usr/local/lib/ && sudo 
 just run                 # open the example deck (no notes)
 just run-notes           # open the example deck (with speaker notes)
 just run file=deck.pdf   # open your own PDF
-just run-empty           # start with no file — shows the recent-files screen
+just run-empty           # start with no file - shows the recent-files screen
 ```
 
 Or without `just`:
@@ -95,8 +110,8 @@ Launch with no argument and press **O** (or click **Open**) to pick a file.
 | Double-click (audience) | Toggle fullscreen |
 | Drag & drop a PDF | Open it |
 
-All mouse features work on **either window** — the presenter window's current slide *and* the
-audience Presentation window — and both drive the same shared state, so pointer, drawings, and
+All mouse features work on **either window** - the presenter window's current slide *and* the
+audience Presentation window - and both drive the same shared state, so pointer, drawings, and
 zoom always mirror between them. Use whichever window your cursor is on (handy when you stand
 by the projected screen).
 
@@ -109,7 +124,7 @@ Drawings are kept per slide while you navigate, and cleared when you close the f
 saved to disk).
 
 **Scroll & zoom:** the scroll wheel navigates slides in either window; hold **Ctrl** (or ⌘) and
-**scroll** to zoom the current slide in/out at the cursor, and **Ctrl + drag** to pan around —
+**scroll** to zoom the current slide in/out at the cursor, and **Ctrl + drag** to pan around -
 mirrored on both screens so you can show a detail to the room. Zoom resets when you change
 slides.
 
@@ -126,7 +141,7 @@ cargo install cargo-bundle   # once (also part of `just install`)
 just bundle                  # bundle for the current OS (release)
 ```
 
-Per-format recipes (run each **on its target OS** — cargo-bundle does not cross-build):
+Per-format recipes (run each **on its target OS** - cargo-bundle does not cross-build):
 
 | Recipe | Output | Platform |
 | --- | --- | --- |
@@ -142,7 +157,7 @@ runtime the app finds it there (e.g. macOS `Contents/Resources/`) with no extern
 **macOS signing.** cargo-bundle adds files after the binary is signed, which invalidates
 the signature and makes macOS report the app as "damaged". `just bundle-mac` therefore
 **ad-hoc signs** the finished bundle so it runs locally. An app *downloaded* from elsewhere
-is also quarantined — open it the first time via right-click → **Open**, or clear the flag
+is also quarantined - open it the first time via right-click → **Open**, or clear the flag
 with `xattr -dr com.apple.quarantine <app>`. Distributing without any warning requires a
 Developer ID signature and notarization (an Apple Developer account).
 
