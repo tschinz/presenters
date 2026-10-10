@@ -565,11 +565,10 @@ impl PresenterApp {
       // Width needed by the fixed right-aligned controls (theme, shortcuts, about), so the
       // wrapping left controls are constrained to the remaining space and never run under them.
       let text_w = |ui: &egui::Ui, s: &str| {
-        ui.fonts(|f| {
-          f.layout_no_wrap(s.to_owned(), egui::FontId::proportional(HEADER_FONT), egui::Color32::WHITE)
-            .size()
-            .x
-        })
+        ui.painter()
+          .layout_no_wrap(s.to_owned(), egui::FontId::proportional(HEADER_FONT), egui::Color32::WHITE)
+          .size()
+          .x
       };
       let per_btn = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
       let right_w = text_w(ui, "About") + text_w(ui, "Shortcuts") + text_w(ui, "💻") + 3.0 * per_btn + 8.0;
@@ -606,31 +605,29 @@ impl PresenterApp {
               // ── Settings popover: footer size + pointer size (stays open while stepping) ──
               ui.separator();
               let gear = ui.button(small("⚙")).on_hover_text("Footer & pointer size");
-              let settings_id = ui.make_persistent_id("settings-popup");
-              if gear.clicked() {
-                ui.memory_mut(|m| m.toggle_popup(settings_id));
-              }
-              egui::popup::popup_below_widget(ui, settings_id, &gear, egui::popup::PopupCloseBehavior::CloseOnClickOutside, |ui| {
-                ui.set_min_width(150.0);
-                ui.horizontal(|ui| {
-                  ui.label("Footer size");
-                  if ui.button(" − ").clicked() {
-                    self.adjust_font(-2.0);
-                  }
-                  if ui.button(" + ").clicked() {
-                    self.adjust_font(2.0);
-                  }
+              egui::Popup::menu(&gear)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                  ui.set_min_width(150.0);
+                  ui.horizontal(|ui| {
+                    ui.label("Footer size");
+                    if ui.button(" − ").clicked() {
+                      self.adjust_font(-2.0);
+                    }
+                    if ui.button(" + ").clicked() {
+                      self.adjust_font(2.0);
+                    }
+                  });
+                  ui.horizontal(|ui| {
+                    ui.label("Pointer size");
+                    if ui.button(" − ").clicked() {
+                      self.adjust_pointer(-POINTER_STEP);
+                    }
+                    if ui.button(" + ").clicked() {
+                      self.adjust_pointer(POINTER_STEP);
+                    }
+                  });
                 });
-                ui.horizontal(|ui| {
-                  ui.label("Pointer size");
-                  if ui.button(" − ").clicked() {
-                    self.adjust_pointer(-POINTER_STEP);
-                  }
-                  if ui.button(" + ").clicked() {
-                    self.adjust_pointer(POINTER_STEP);
-                  }
-                });
-              });
 
               // ── Display ──
               if ui.button(small("🔀 Layout (L)")).on_hover_text("Cycle panel arrangements").clicked() {
@@ -804,8 +801,12 @@ impl PresenterApp {
               egui::Image::new(egui::load::SizedTexture::new(tex.id(), egui::vec2(w, h))).paint_at(ui, img_rect);
             }
             if i == current {
-              ui.painter()
-                .rect_stroke(img_rect.expand(1.5), 2.0, egui::Stroke::new(2.5_f32, ui.visuals().selection.bg_fill));
+              ui.painter().rect_stroke(
+                img_rect.expand(1.5),
+                2.0,
+                egui::Stroke::new(2.5_f32, ui.visuals().selection.bg_fill),
+                egui::StrokeKind::Inside,
+              );
             }
             // Slide number, bottom-left of the slot.
             ui.painter().text(
@@ -892,7 +893,7 @@ impl PresenterApp {
             let (w, h) = rgba.dimensions();
             egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba.as_raw())
           }
-          Err(_) => egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT),
+          Err(_) => egui::ColorImage::filled([1, 1], egui::Color32::TRANSPARENT),
         };
         ctx.load_texture("start-logo", color, egui::TextureOptions::LINEAR)
       })
@@ -911,7 +912,7 @@ impl PresenterApp {
             let (w, h) = rgba.dimensions();
             egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba.as_raw())
           }
-          Err(_) => egui::ColorImage::new([1, 1], egui::Color32::TRANSPARENT),
+          Err(_) => egui::ColorImage::filled([1, 1], egui::Color32::TRANSPARENT),
         };
         ctx.load_texture("about-logo", color, egui::TextureOptions::LINEAR)
       })
@@ -1120,7 +1121,7 @@ impl PresenterApp {
       ..
     } = self;
     let doc = document.as_ref();
-    let screen = ctx.screen_rect();
+    let screen = ctx.content_rect();
     let has_notes = doc.map(|d| d.has_notes()).unwrap_or(false);
     // Input for the current-slide pane (pointer/drawing/zoom). Consumed once by the Current pane.
     let page = session.current();
@@ -1378,7 +1379,7 @@ impl PresenterApp {
 
     ctx.show_viewport_immediate(vid, builder, |vctx, _class| {
       egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(egui::Color32::BLACK))
+        .frame(egui::Frame::new().fill(egui::Color32::BLACK))
         .show(vctx, |ui| {
           // Double-click the black margins to toggle fullscreen (the slide area is handled
           // by `audience_slide`, whose interaction sits on top of this one).
@@ -1591,7 +1592,6 @@ fn process_slide_input(ui: &mut egui::Ui, rect: egui::Rect, uv: egui::Rect, inp:
 /// fixed). Returns true when the colour changed. A compact alternative to egui's wide
 /// `color_edit_button_srgb` rectangle.
 fn color_dot_picker(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> bool {
-  let popup_id = ui.auto_id_with("ptr-color-popup");
   let d = ui.spacing().interact_size.y.clamp(16.0, 22.0);
   let (rect, resp) = ui.allocate_exact_size(egui::vec2(d, d), egui::Sense::click());
   let resp = resp.on_hover_text("Pointer & drawing colour");
@@ -1603,30 +1603,18 @@ fn color_dot_picker(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> bool {
   ui.painter().circle_filled(rect.center(), r, color);
   ui.painter().circle_stroke(rect.center(), r, egui::Stroke::new(1.0_f32, rim));
 
-  if resp.clicked() {
-    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
-  }
-
+  // Clicking the dot toggles a colour-picker popup (stays open while editing).
   let mut changed = false;
-  if ui.memory(|mem| mem.is_popup_open(popup_id)) {
-    let area = egui::Area::new(popup_id)
-      .order(egui::Order::Foreground)
-      .fixed_pos(rect.left_bottom())
-      .show(ui.ctx(), |ui| {
-        egui::Frame::popup(ui.style()).show(ui, |ui| {
-          let mut c = color;
-          if egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::Opaque) {
-            let [cr, cg, cb, _] = c.to_array();
-            *rgb = [cr, cg, cb];
-            changed = true;
-          }
-        });
-      })
-      .response;
-    if !resp.clicked() && (ui.input(|i| i.key_pressed(egui::Key::Escape)) || area.clicked_elsewhere()) {
-      ui.memory_mut(|mem| mem.close_popup());
-    }
-  }
+  egui::Popup::menu(&resp)
+    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+    .show(|ui| {
+      let mut c = color;
+      if egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::Opaque) {
+        let [cr, cg, cb, _] = c.to_array();
+        *rgb = [cr, cg, cb];
+        changed = true;
+      }
+    });
   changed
 }
 
@@ -1634,7 +1622,7 @@ fn color_dot_picker(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> bool {
 /// (proportional font). Keeps the start and the end (e.g. the file extension).
 fn elide_middle(ui: &egui::Ui, text: &str, size: f32, max_w: f32) -> String {
   let fid = egui::FontId::proportional(size);
-  let width = |s: &str| ui.fonts(|f| f.layout_no_wrap(s.to_owned(), fid.clone(), egui::Color32::WHITE).size().x);
+  let width = |s: &str| ui.painter().layout_no_wrap(s.to_owned(), fid.clone(), egui::Color32::WHITE).size().x;
   if width(text) <= max_w {
     return text.to_owned();
   }

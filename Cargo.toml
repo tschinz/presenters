@@ -30,9 +30,9 @@ timer; on the audience screen it shows just the slide, fullscreen.
 """
 
 [dependencies]
-eframe = { version = "0.29", features = ["wgpu"] }
-egui = "0.29"
-egui_extras = { version = "0.29", features = ["image"] }
+eframe = { version = "0.33", features = ["wgpu"] }
+egui = "0.33"
+egui_extras = { version = "0.33", features = ["image"] }
 pdfium-render = "0.8"
 image = { version = "0.25", default-features = false, features = ["png"] }
 directories = "5"
