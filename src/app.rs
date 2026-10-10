@@ -131,6 +131,17 @@ pub struct PresenterApp {
   /// Pending request to fullscreen the audience window on the frame after placement
   /// (so OS fullscreen targets the monitor we just moved it to).
   audience_apply_fullscreen: bool,
+  /// When true, presenter and audience windows are swapped onto the opposite monitors
+  /// (for when the OS reports the wrong primary display). Session-only.
+  screens_swapped: bool,
+  /// A swap was requested (via S or the button); performed once in `update` with the main ctx.
+  pending_swap: bool,
+  /// Screen-swap staging (each phase waits for the previous macOS window transition to finish):
+  /// move the presenter onto the target monitor at this instant (after the audience has closed).
+  move_presenter_at: Option<Instant>,
+  /// Re-present (reopen the audience on the swapped monitor) at this instant, after the presenter
+  /// has settled on its new monitor.
+  represent_at: Option<Instant>,
   show_shortcuts: bool,
   show_about: bool,
   /// Pointer vs. drawing (toggle with D).
@@ -204,6 +215,10 @@ impl PresenterApp {
       recent,
       audience_needs_place: false,
       audience_apply_fullscreen: false,
+      screens_swapped: false,
+      pending_swap: false,
+      move_presenter_at: None,
+      represent_at: None,
       show_shortcuts: false,
       show_about: false,
       mode: InputMode::Pointer,
@@ -413,7 +428,43 @@ impl PresenterApp {
   /// Quit the presentation (close the audience window) and pause the talk timer.
   fn stop_presentation(&mut self) {
     self.presenting = false;
+    // Cancel any pending swap steps. (swap_screens calls this first, then schedules the move, so
+    // its own sequence survives; a user-initiated quit cancels an in-flight swap.)
+    self.move_presenter_at = None;
+    self.represent_at = None;
     self.session.timer_mut().pause();
+  }
+
+  /// Swap which physical monitor shows the presenter vs. the audience window, for when the OS
+  /// reports the wrong primary display. Moves the presenter window onto its new monitor and, if
+  /// presenting, re-places the audience (fullscreen) on the other. Needs a second screen.
+  /// Call with the main (presenter) context.
+  fn swap_screens(&mut self, ctx: &egui::Context) {
+    if crate::screen::external().is_none() {
+      self.status = "Swapping screens needs a second display.".to_owned();
+      return;
+    }
+    self.screens_swapped = !self.screens_swapped;
+    if self.presenting {
+      // Stage it so each macOS window transition finishes before the next: quit the presentation
+      // (closes the audience fullscreen Space), then move the presenter once that Space has closed,
+      // then re-present on the swapped monitor. Doing these back-to-back races the Space transitions
+      // and leaves a screen stuck black.
+      self.stop_presentation();
+      self.move_presenter_at = Some(Instant::now() + Duration::from_millis(700));
+    } else {
+      // Not presenting: a single viewport, so move immediately (the stable path).
+      self.move_presenter(ctx);
+    }
+  }
+
+  /// Move the presenter window onto its target monitor and maximise it to fill that screen.
+  fn move_presenter(&mut self, ctx: &egui::Context) {
+    if let Some(m) = crate::screen::presenter_monitor(self.screens_swapped) {
+      ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+      ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(m.x + 20.0, m.y + 20.0)));
+      ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+    }
   }
 
   /// Close the current document and return to the start screen.
@@ -568,6 +619,9 @@ impl PresenterApp {
         self.show_thumbnails = !self.show_thumbnails;
         self.dirty = true;
       }
+      if i.key_pressed(Key::S) {
+        self.pending_swap = true;
+      }
       close = i.key_pressed(Key::W);
       open = i.key_pressed(Key::O);
     });
@@ -693,6 +747,9 @@ impl PresenterApp {
               }
               if ui.button(small("↺ Reset time (R)")).clicked() {
                 self.session.timer_mut().reset();
+              }
+              if ui.button(small("🖥 Swap (S)")).on_hover_text("Swap presenter / presentation screens").clicked() {
+                self.pending_swap = true;
               }
 
               // ── Settings popover: footer size + pointer size (stays open while stepping) ──
@@ -963,6 +1020,7 @@ impl PresenterApp {
           ("R", "Reset the talk timer"),
           ("L", "Flip layout (H/V with no notes; 4 presets with notes)"),
           ("T", "Toggle the slide thumbnail strip"),
+          ("S", "Swap presenter / presentation screens"),
           ("+ / −", "Footer font larger / smaller"),
           ("O", "Open a PDF"),
           ("Hold mouse on current slide", "Laser pointer / draw (on the audience screen)"),
@@ -1362,6 +1420,34 @@ impl eframe::App for PresenterApp {
     }
 
     self.handle_shortcuts(ctx);
+    // Swap requests (S or the button, from either window) run here with the main context, which
+    // owns the presenter window.
+    if self.pending_swap {
+      self.pending_swap = false;
+      self.swap_screens(ctx);
+    }
+    // Staged screen swap: move the presenter once the audience has closed, then re-present on the
+    // swapped monitor once the presenter has settled. Spacing the steps avoids racing macOS window
+    // transitions (which left a screen stuck black).
+    let now = Instant::now();
+    if let Some(t) = self.move_presenter_at {
+      if now >= t {
+        self.move_presenter_at = None;
+        self.move_presenter(ctx);
+        self.represent_at = Some(now + Duration::from_millis(800));
+      } else {
+        ctx.request_repaint_after(t - now);
+      }
+    }
+    if let Some(t) = self.represent_at {
+      if now >= t {
+        self.represent_at = None;
+        self.start_presentation();
+      } else {
+        ctx.request_repaint_after(t - now);
+      }
+    }
+
     // Hot reload: (re)build the watcher when the document/toggle changed, then reload when the
     // watcher reported a change (debounced via a short due time + bounded retry for mid-write).
     if self.rewatch {
@@ -1479,14 +1565,10 @@ impl PresenterApp {
 
     let mut builder = egui::ViewportBuilder::default().with_title("Presentation").with_icon(crate::app_icon());
     if self.audience_needs_place {
-      // Place the window this frame: on the external monitor if present, else at the
-      // last-used position. Fullscreen (if wanted) is applied next frame, once the
-      // window is on the target monitor, so it fullscreens there and not on primary.
-      if let Some([mx, my]) = crate::screen::external_origin() {
-        builder = builder.with_position([mx + 80.0, my + 80.0]).with_inner_size([800.0, 450.0]);
-      } else if let Some(prim) = crate::screen::primary() {
-        // Single screen: open on the current monitor so the next-frame fullscreen covers it.
-        builder = builder.with_position([prim.x, prim.y]).with_inner_size([prim.w.max(640.0), prim.h.max(360.0)]);
+      // Place the window this frame on its target monitor (honouring the screen swap), then
+      // fullscreen it next frame so the OS fullscreens on that monitor and not on primary.
+      if let Some(m) = crate::screen::audience_monitor(self.screens_swapped) {
+        builder = builder.with_position([m.x, m.y]).with_inner_size([m.w.max(640.0), m.h.max(360.0)]);
       } else if let Some(g) = self.audience_geometry {
         builder = builder.with_position([g.x, g.y]).with_inner_size([g.w, g.h]);
       } else {

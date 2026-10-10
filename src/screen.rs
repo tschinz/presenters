@@ -11,6 +11,8 @@ pub struct MonitorRect {
   pub y: f32,
   pub w: f32,
   pub h: f32,
+  /// The monitor's scale factor (device pixels per logical point).
+  pub scale: f32,
 }
 
 impl MonitorRect {
@@ -28,6 +30,7 @@ fn to_logical(d: &DisplayInfo) -> MonitorRect {
       y: d.y as f32,
       w: d.width as f32,
       h: d.height as f32,
+      scale: s,
     }
   } else {
     MonitorRect {
@@ -35,6 +38,7 @@ fn to_logical(d: &DisplayInfo) -> MonitorRect {
       y: d.y as f32 / s,
       w: d.width as f32 / s,
       h: d.height as f32 / s,
+      scale: s,
     }
   }
 }
@@ -45,11 +49,34 @@ pub fn primary() -> Option<MonitorRect> {
   displays.iter().find(|d| d.is_primary).or_else(|| displays.first()).map(to_logical)
 }
 
+/// A secondary (non-primary) monitor's rectangle, if one is attached.
+pub fn external() -> Option<MonitorRect> {
+  let displays = DisplayInfo::all().ok()?;
+  let ext = displays.into_iter().find(|d| !d.is_primary)?;
+  Some(to_logical(&ext))
+}
+
 /// The top-left of a secondary monitor, if one is attached (where the audience
 /// window belongs).
 pub fn external_origin() -> Option<[f32; 2]> {
-  let displays = DisplayInfo::all().ok()?;
-  let ext = displays.into_iter().find(|d| !d.is_primary)?;
-  let r = to_logical(&ext);
-  Some([r.x, r.y])
+  external().map(|r| [r.x, r.y])
+}
+
+/// The monitor the audience window should occupy. With two screens it is the external one
+/// (or the primary when `swapped`); with a single screen it is the primary.
+pub fn audience_monitor(swapped: bool) -> Option<MonitorRect> {
+  match (primary(), external()) {
+    (Some(p), Some(e)) => Some(if swapped { p } else { e }),
+    (p, None) => p,
+    (None, Some(e)) => Some(e),
+  }
+}
+
+/// The monitor the presenter window should occupy (the one the audience is not on).
+pub fn presenter_monitor(swapped: bool) -> Option<MonitorRect> {
+  match (primary(), external()) {
+    (Some(p), Some(e)) => Some(if swapped { e } else { p }),
+    (p, None) => p,
+    (None, Some(e)) => Some(e),
+  }
 }

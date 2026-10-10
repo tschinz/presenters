@@ -89,6 +89,7 @@ irm https://raw.githubusercontent.com/tschinz/presenters/main/install.ps1 | iex
 | `R` | Reset the talk timer |
 | `L` | Flip layout |
 | `T` | Toggle the thumbnail strip |
+| `S` | Swap presenter / presentation screens |
 | `+` / `−` | Footer font larger / smaller |
 | `O` | Open a PDF |
 | `P` / `D` | Toggle laser pointer / drawing · delete all drawings |
