@@ -105,7 +105,14 @@ pub struct PdfiumRenderer {
 impl PdfiumRenderer {
   pub fn open(path: &Path) -> Result<Self> {
     let pdfium = pdfium()?;
-    let document = pdfium.load_pdf_from_file(path, None).with_context(|| format!("opening {}", path.display()))?;
+    // Read the whole file into memory and hand ownership to PDFium instead of keeping the file
+    // open for the document's lifetime. This releases the OS handle immediately, so another
+    // program recompiling the deck (Typst/LaTeX) can overwrite the PDF - on Windows an open
+    // handle would otherwise lock it - and PDFium then works from a stable in-memory snapshot.
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let document = pdfium
+      .load_pdf_from_byte_vec(bytes, None)
+      .with_context(|| format!("opening {}", path.display()))?;
 
     // Cache page sizes up front: cheap, and it drives layout/notes detection.
     let page_sizes = document
