@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.9] - 2026-10-10
+
+### 🚀 Features
+
+- *(pdf)* Load PDFs from an in-memory copy so other tools can overwrite them ([136b1d3](https://github.com/tschinz/presenters/commit/136b1d3d76c7f9e45df044d718f4e1c2b9119572) - zas)
+- *(reload)* Hot-reload the open PDF when its file changes on disk ([b5bb8ba](https://github.com/tschinz/presenters/commit/b5bb8ba39acf5f63f60b06a385367b15f179a7cf) - zas)
+- *(present)* Swap presenter and audience across screens (S) ([2985e89](https://github.com/tschinz/presenters/commit/2985e89a4cd91f1343ca1ffc6cc98539f7ce0541) - zas)
+
+
+**Full Changelog**: [v0.1.8...v0.1.9](https://github.com/tschinz/presenters/compare/v0.1.8...v0.1.9)
+
 ## [0.1.8] - 2026-10-05
 
 ### 🐛 Bug Fixes
