@@ -45,6 +45,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rfd = "0.15"
 display-info = "0.5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+notify = "8.2.0"
 
 [profile.dev]
 opt-level = 1          # keep debug builds snappy for PDF rendering

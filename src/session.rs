@@ -25,6 +25,15 @@ impl Session {
     self.page_count
   }
 
+  /// Update the page count (e.g. after a hot reload), keeping the timer and clamping the
+  /// current slide into the new range.
+  pub fn set_page_count(&mut self, page_count: usize) {
+    self.page_count = page_count;
+    if self.current >= page_count {
+      self.current = page_count.saturating_sub(1);
+    }
+  }
+
   /// The page after the current one, if any (for the "next slide" preview).
   pub fn next_page(&self) -> Option<usize> {
     (self.current + 1 < self.page_count).then_some(self.current + 1)

@@ -68,6 +68,8 @@ pub struct State {
   /// RGB colour of the laser pointer and freehand drawings (alpha stays fixed).
   pub pointer_color: [u8; 3],
   pub theme: Theme,
+  /// Reload the open PDF when its file changes on disk.
+  pub hot_reload: bool,
 }
 
 impl Default for State {
@@ -84,6 +86,7 @@ impl Default for State {
       thumb_height: 180.0,
       pointer_color: [230, 30, 30],
       theme: Theme::System,
+      hot_reload: true,
     }
   }
 }

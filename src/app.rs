@@ -12,7 +12,11 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+use notify::Watcher as _;
 
 use crate::config::{self, Geometry};
 use crate::document::Document;
@@ -151,6 +155,18 @@ pub struct PresenterApp {
   logo: Option<egui::TextureHandle>,
   /// Lazily-loaded full-color logo for the About window.
   about_logo: Option<egui::TextureHandle>,
+  /// Reload the document when its file changes on disk (persisted).
+  hot_reload: bool,
+  /// Set by the file watcher thread when the open PDF changed; consumed on the UI thread.
+  reload_flag: Arc<AtomicBool>,
+  /// Keeps the OS file watcher alive; dropping it stops watching.
+  watcher: Option<notify::RecommendedWatcher>,
+  /// Request to (re)build the watcher on the next frame (needs the egui context).
+  rewatch: bool,
+  /// When a reload is due (debounce/retry after a file change); `None` when idle.
+  reload_due: Option<Instant>,
+  /// Consecutive failed reload attempts (the file may still be mid-write); bounded.
+  reload_tries: u32,
   /// Persistence bookkeeping.
   dirty: bool,
   last_save: Instant,
@@ -201,6 +217,12 @@ impl PresenterApp {
       current_slide_rect: None,
       logo: None,
       about_logo: None,
+      hot_reload: st.hot_reload,
+      reload_flag: Arc::new(AtomicBool::new(false)),
+      watcher: None,
+      rewatch: false,
+      reload_due: None,
+      reload_tries: 0,
       dirty: pruned,
       last_save: Instant::now(),
     };
@@ -225,6 +247,8 @@ impl PresenterApp {
         self.document = Some(doc);
         self.cache.clear();
         self.thumb_cache.clear();
+        self.reload_due = None;
+        self.rewatch = true; // (re)point the file watcher at the new file
         self.record_recent(path);
         self.save_now(); // persist the new recent entry immediately
       }
@@ -286,6 +310,7 @@ impl PresenterApp {
       thumb_height: self.thumb_height,
       pointer_color: self.pointer_color,
       theme: self.theme,
+      hot_reload: self.hot_reload,
     }
   }
 
@@ -403,7 +428,75 @@ impl PresenterApp {
     self.mode = InputMode::Pointer;
     self.session = Session::new(0);
     self.cache.clear();
+    self.reload_due = None;
+    self.rewatch = true; // drop the file watcher (no document)
     self.status = "Open a PDF to begin (O).".to_owned();
+  }
+
+  /// Rebuild the OS file watcher for the open document (or drop it). notify recommends watching
+  /// the parent directory and filtering by filename, so editor/compiler rename-replace writes are
+  /// still seen. The watcher thread sets `reload_flag` and wakes the UI on a matching change.
+  fn update_watcher(&mut self, ctx: &egui::Context) {
+    self.watcher = None; // stop any previous watch
+    if !self.hot_reload {
+      return;
+    }
+    let Some(path) = self.document.as_ref().map(|d| d.path().to_path_buf()) else {
+      return;
+    };
+    let (Some(dir), Some(name)) = (path.parent().map(Path::to_path_buf), path.file_name().map(std::ffi::OsString::from)) else {
+      return;
+    };
+    let flag = self.reload_flag.clone();
+    let repaint = ctx.clone();
+    let handler = move |res: notify::Result<notify::Event>| {
+      if let Ok(ev) = res
+        && ev.paths.iter().any(|p| p.file_name() == Some(name.as_os_str()))
+      {
+        flag.store(true, Ordering::Relaxed);
+        repaint.request_repaint();
+      }
+    };
+    match notify::RecommendedWatcher::new(handler, notify::Config::default()) {
+      Ok(mut w) => match w.watch(&dir, notify::RecursiveMode::NonRecursive) {
+        Ok(()) => self.watcher = Some(w),
+        Err(e) => tracing::warn!("hot reload: watching {} failed: {e}", dir.display()),
+      },
+      Err(e) => tracing::warn!("hot reload: watcher init failed: {e}"),
+    }
+  }
+
+  /// Reload the open document from disk, preserving the current slide (clamped) and the timer.
+  /// On failure (the file may still be mid-write) schedules a bounded retry.
+  fn do_reload(&mut self, ctx: &egui::Context) {
+    let Some(path) = self.document.as_ref().map(|d| d.path().to_path_buf()) else {
+      return;
+    };
+    match Document::open(&path) {
+      Ok(doc) => {
+        self.session.set_page_count(doc.page_count());
+        self.document = Some(doc);
+        self.cache.clear();
+        self.thumb_cache.clear();
+        self.reset_zoom();
+        self.strokes.clear();
+        self.drawing = false;
+        self.reload_tries = 0;
+        self.status = format!("Reloaded {}", path.file_name().unwrap_or_default().to_string_lossy());
+      }
+      Err(e) => {
+        self.reload_tries += 1;
+        if self.reload_tries < 12 {
+          // File is likely still being written; retry shortly.
+          self.reload_due = Some(Instant::now() + Duration::from_millis(400));
+          ctx.request_repaint_after(Duration::from_millis(400));
+        } else {
+          tracing::warn!("hot reload failed after {} tries: {e:#}", self.reload_tries);
+          self.status = "Reload failed (file unreadable)".to_owned();
+          self.reload_tries = 0;
+        }
+      }
+    }
   }
 
   /// Open the first PDF dropped onto the window (drag & drop).
@@ -627,6 +720,15 @@ impl PresenterApp {
                       self.adjust_pointer(POINTER_STEP);
                     }
                   });
+                  ui.separator();
+                  if ui
+                    .checkbox(&mut self.hot_reload, "Hot reload")
+                    .on_hover_text("Reload when the PDF file changes on disk")
+                    .changed()
+                  {
+                    self.rewatch = true;
+                    self.dirty = true;
+                  }
                 });
 
               // ── Display ──
@@ -1260,6 +1362,24 @@ impl eframe::App for PresenterApp {
     }
 
     self.handle_shortcuts(ctx);
+    // Hot reload: (re)build the watcher when the document/toggle changed, then reload when the
+    // watcher reported a change (debounced via a short due time + bounded retry for mid-write).
+    if self.rewatch {
+      self.rewatch = false;
+      self.update_watcher(ctx);
+    }
+    if self.reload_flag.swap(false, Ordering::Relaxed) {
+      self.reload_due = Some(Instant::now());
+      self.reload_tries = 0;
+    }
+    if let Some(t) = self.reload_due {
+      if Instant::now() >= t {
+        self.reload_due = None;
+        self.do_reload(ctx);
+      } else {
+        ctx.request_repaint_after(t - Instant::now());
+      }
+    }
     // Mouse-wheel navigation / zoom on the presenter window, anchored at its current slide.
     let anchor = self.current_slide_rect;
     let strip = self.thumb_rect;
